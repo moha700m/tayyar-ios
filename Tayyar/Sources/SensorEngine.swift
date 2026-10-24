@@ -57,7 +57,9 @@ final class SensorEngine {
     private let manager = CMMotionManager()
     private let queue: OperationQueue = { let q = OperationQueue(); q.maxConcurrentOperationCount = 1; q.qualityOfService = .userInteractive; return q }()
     private let n = 256
-    private var bx: [Double] = [], by: [Double] = [], bz: [Double] = []
+    private var bx: [Double] = []
+    private var by: [Double] = []
+    private var bz: [Double] = []
     private var times: [Double] = []
     private var motionTimes: [Double] = []
     private var magWindow: [Double] = []
@@ -71,7 +73,7 @@ final class SensorEngine {
     private var calMag: [Double] = []
     private var lastSpectrum: [SpectrumPoint] = []
     private let dft = vDSP.DFT(count: 256, direction: .forward, transformType: .complexComplex, ofType: Float.self)
-    private lazy var hann: [Double] = (0..<n).map { 0.5 - 0.5 * cos(2 * .pi * Double($0) / Double(n - 1)) }
+    @ObservationIgnored private let hann: [Double] = (0..<256).map { 0.5 - 0.5 * cos(2 * .pi * Double($0) / 255.0) }
 
     func start() {
         guard !running, manager.isMagnetometerAvailable else { return }
