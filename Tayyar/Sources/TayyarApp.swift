@@ -11,6 +11,7 @@ struct TayyarApp: App {
                 .environment(\.locale, Locale(identifier: "ar_SA"))
                 .preferredColorScheme(.dark)
                 .tint(Theme.amber)
+                .dynamicTypeSize(.xLarge ... .accessibility3)
         }
     }
 }

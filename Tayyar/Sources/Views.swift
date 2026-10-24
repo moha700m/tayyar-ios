@@ -12,19 +12,14 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
                 Text("تيّار").font(.largeTitle.bold()).frame(maxWidth: .infinity)
-                Text("قبل لا تخرم الجدار، مرّر جوالك عليه وتيّار ينبهك لو حس بسلك كهربا شغال أو حديد").multilineTextAlignment(.center).foregroundStyle(.secondary)
-                card(icon: "exclamationmark.shield.fill", color: .red, title: "تنبيه سلامة مهم",
-                     text: "تيّار ينبهك بس وما يضمن أبداً إن المكان آمن. عدم وجود تنبيه ما يعني إن ما فيه سلك. افصل الكهربا من الطبلون دايماً قبل الخرم، واستخدم جهاز كشف أسلاك حقيقي.")
-                card(icon: "iphone.radiowaves.left.and.right", color: Theme.amber, title: "كيف يشتغل",
-                     text: "يقرأ حساس المغناطيس في جوالك ١٠٠ مرة بالثانية تقريباً، ويدور على ذبذبة الكهربا ٦٠ هيرتز والتغير في المجال المغناطيسي. دقته تختلف من جوال لجوال، فجرّب وضع التجربة أول.")
-                card(icon: "hand.raised.fill", color: .blue, title: "الخطوات",
-                     text: "١. أبعد الجوال عن الجدران وسوّ معايرة\n٢. حط الجوال على الجدار ومرّره ببطء\n٣. لو زاد المؤشر والصوت والرجة، وقف ولا تخرم")
+                Text("قبل لا تخرم الجدار، مرّر جوالك عليه وتيّار ينبهك لو حس بسلك كهربا شغال أو حديد").font(.title3).multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+                GuideSteps()
                 Toggle("فاهم إن التطبيق للتنبيه بس وما يغني عن فصل الكهربا", isOn: $agreed)
-                    .toggleStyle(.switch).padding().background(Theme.card, in: .rect(cornerRadius: 14))
+                    .font(.body.bold()).toggleStyle(.switch).padding().background(Theme.card, in: .rect(cornerRadius: 14))
                 Button(action: done) {
-                    Text("ابدأ").font(.headline).frame(maxWidth: .infinity).padding()
+                    Text("ابدأ").font(.title2.bold()).frame(maxWidth: .infinity, minHeight: 56)
                 }
-                .buttonStyle(.borderedProminent).disabled(!agreed)
+                .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 16)).disabled(!agreed)
             }
             .padding()
         }
@@ -58,14 +53,14 @@ struct GaugeView: View {
             VStack(spacing: 4) {
                 Text("\(Int(score * 100))").font(.system(size: 64, weight: .bold, design: .rounded)).monospacedDigit()
                     .foregroundStyle(Theme.level(score))
-                Text(label).font(.headline)
+                Text(label).font(.title3.bold()).multilineTextAlignment(.center).padding(.horizontal, 40)
             }
         }
         .environment(\.layoutDirection, .leftToRight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("مستوى الخطر \(Int(score * 100)) بالمية، \(label)")
     }
-    var label: String { score < 0.33 ? "هادي" : (score < 0.66 ? "انتبه" : "لا تخرم هنا") }
+    var label: String { ScanStatus(score: score).title }
 }
 
 struct ScanView: View {
@@ -74,6 +69,7 @@ struct ScanView: View {
     @AppStorage("sound") private var sound = true
     @AppStorage("haptics") private var haptics = true
     @State private var scanning = false
+    @State private var showHelp = false
 
     var body: some View {
         NavigationStack {
@@ -84,7 +80,9 @@ struct ScanView: View {
                     } else if engine.baselineMagnitude == nil {
                         CalibrateView()
                     } else {
-                        GaugeView(score: scanning ? engine.score : 0).frame(height: 260).padding(.top)
+                        statusBanner
+                        GaugeView(score: scanning ? engine.score : 0).frame(height: 260)
+                        scanHint
                         HStack(spacing: 12) {
                             metric("ذبذبة الكهربا", value: engine.humScore, detail: String(format: "×%.1f", engine.humRatio), icon: "bolt.fill")
                             metric("حديد أو معدن", value: engine.magScore, detail: String(format: "%.0f µT", engine.magDeviation), icon: "square.grid.3x3.fill")
@@ -95,19 +93,29 @@ struct ScanView: View {
                             if scanning { feedback.start() } else { feedback.stop() }
                         } label: {
                             Label(scanning ? "وقف الفحص" : "ابدأ الفحص", systemImage: scanning ? "stop.fill" : "play.fill")
-                                .font(.headline).frame(maxWidth: .infinity).padding()
+                                .font(.title2.bold()).frame(maxWidth: .infinity, minHeight: 60)
                         }
                         .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.roundedRectangle(radius: 18))
                         .tint(scanning ? .red : Theme.amber)
-                        Button("عيد المعايرة") { scanning = false; feedback.stop(); engine.resetBaseline() }
+                        Button { scanning = false; feedback.stop(); engine.resetBaseline() } label: {
+                            Label("أعد المعايرة", systemImage: "arrow.counterclockwise").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 50)
+                        }
+                        .buttonStyle(.bordered)
                         Label("التطبيق ينبهك بس. افصل الكهربا دايماً قبل الخرم", systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding()
             }
             .background(Theme.bg)
             .navigationTitle("تيّار")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showHelp = true } label: { Label("كيف أستخدمه", systemImage: "questionmark.circle.fill").labelStyle(.titleAndIcon).font(.headline) }
+                }
+            }
+            .sheet(isPresented: $showHelp) { HowToView() }
             .onAppear { engine.start() }
             .onDisappear { scanning = false; feedback.stop() }
             .onChange(of: engine.rawMagnitude) {
@@ -118,9 +126,43 @@ struct ScanView: View {
         }
     }
 
+    private var status: ScanStatus { ScanStatus(score: scanning ? engine.score : 0) }
+
+    private var statusBanner: some View {
+        HStack(spacing: 14) {
+            Image(systemName: scanning ? status.icon : "pause.circle.fill").font(.system(size: 40))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(scanning ? status.title : "الفحص واقف").font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
+                Text(scanning ? status.meaning : "اضغط ابدأ الفحص تحت وحط أعلى الجوال على الجدار").font(.callout).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(scanning ? status.color : .secondary)
+        .padding(16)
+        .background((scanning ? status.color : .gray).opacity(0.18), in: .rect(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke((scanning ? status.color : .gray).opacity(0.6), lineWidth: 2))
+        .animation(.easeOut(duration: 0.2), value: status)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var scanHint: some View {
+        HStack(spacing: 14) {
+            PhoneDiagram().frame(height: 110)
+            VStack(alignment: .leading, spacing: 8) {
+                Label("الصق أعلى الجوال على الجدار", systemImage: "arrow.up.circle.fill").font(.headline)
+                Label("حركه ببطء يمين ويسار", systemImage: "arrow.left.and.right.circle.fill").font(.headline)
+                Button("شوف الشرح بالصور") { showHelp = true }.font(.callout.bold())
+            }
+            .foregroundStyle(Theme.amber)
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Theme.card, in: .rect(cornerRadius: 20))
+    }
+
     private var liveGraph: some View {
         VStack(alignment: .leading) {
-            Text("المجال المغناطيسي مباشر").font(.subheadline.bold())
+            Text("المجال المغناطيسي مباشر").font(.headline)
             Chart(engine.history) { p in
                 LineMark(x: .value("t", p.id), y: .value("µT", p.value)).foregroundStyle(Theme.amber)
             }
@@ -134,9 +176,9 @@ struct ScanView: View {
 
     private func metric(_ title: String, value: Double, detail: String, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: icon).font(.subheadline.bold())
+            Label(title, systemImage: icon).font(.headline).fixedSize(horizontal: false, vertical: true)
             ProgressView(value: scanning ? value : 0).tint(Theme.level(value))
-            Text(detail).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            Text(detail).font(.callout).monospacedDigit().foregroundStyle(.secondary)
         }
         .padding().frame(maxWidth: .infinity).background(Theme.card, in: .rect(cornerRadius: 14))
     }
@@ -146,19 +188,27 @@ struct CalibrateView: View {
     @Environment(SensorEngine.self) private var engine
     var body: some View {
         VStack(spacing: 20) {
-            Image(systemName: "scope").font(.system(size: 70)).foregroundStyle(Theme.amber).padding(.top, 30)
-            Text("المعايرة").font(.title.bold())
+            Text("الخطوة الأولى: المعايرة").font(.largeTitle.bold()).multilineTextAlignment(.center).padding(.top, 20)
+            HStack(spacing: 16) {
+                Image(systemName: "figure.stand").font(.system(size: 70))
+                Image(systemName: "iphone").font(.system(size: 56)).foregroundStyle(Theme.amber)
+                Image(systemName: "arrow.left.and.right").font(.title.bold())
+                Text("١ متر").font(.title2.bold())
+                Image(systemName: "rectangle.split.3x3").font(.system(size: 60)).foregroundStyle(.brown)
+            }
+            .environment(\.layoutDirection, .leftToRight)
+            .accessibilityHidden(true)
             Text("امسك الجوال بعيد عن الجدران والأجهزة والحديد بمسافة متر تقريباً، وخله ثابت لين تخلص المعايرة")
-                .multilineTextAlignment(.center).foregroundStyle(.secondary)
+                .font(.title3).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             if engine.calibrating {
-                ProgressView(value: engine.calibrationProgress).padding(.horizontal)
-                Text("جاري المعايرة لا تحرك الجوال").font(.footnote)
+                ProgressView(value: engine.calibrationProgress).scaleEffect(y: 3).padding()
+                Text("جاري المعايرة لا تحرك الجوال").font(.title3.bold()).foregroundStyle(Theme.amber)
             } else {
                 Button { engine.beginCalibration() } label: {
-                    Text("ابدأ المعايرة").font(.headline).frame(maxWidth: .infinity).padding()
-                }.buttonStyle(.borderedProminent)
+                    Label("ابدأ المعايرة", systemImage: "scope").font(.title2.bold()).frame(maxWidth: .infinity, minHeight: 60)
+                }.buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 18))
             }
-            Text(String(format: "سرعة القراءة: %.0f قراءة بالثانية", engine.rawRate)).font(.caption).foregroundStyle(.secondary)
+            Text(String(format: "سرعة القراءة: %.0f قراءة بالثانية", engine.rawRate)).font(.callout).foregroundStyle(.secondary)
         }
     }
 }
@@ -218,6 +268,7 @@ struct SettingsView: View {
     @AppStorage("sound") private var sound = true
     @AppStorage("haptics") private var haptics = true
     @AppStorage("onboarded") private var onboarded = true
+    @State private var showHelp = false
     var body: some View {
         @Bindable var e = engine
         NavigationStack {
@@ -228,9 +279,11 @@ struct SettingsView: View {
                 }
                 Section("نطاق ذبذبة الكهربا") {
                     Picker("تردد الكهربا", selection: $e.mainsHz) {
-                        Text("٦٠ هيرتز (السعودية)").tag(60.0)
+                        Text("٦٠ هيرتز").tag(60.0)
                         Text("٥٠ هيرتز").tag(50.0)
                     }
+                    .pickerStyle(.segmented)
+                    Text("السعودية ٦٠ هيرتز").font(.callout).foregroundStyle(.secondary)
                     Toggle("حساب النطاق تلقائي", isOn: $e.autoBand)
                     if !e.autoBand {
                         Stepper(String(format: "من %.0f Hz", e.bandLow), value: $e.bandLow, in: 1...(e.bandHigh - 1))
@@ -238,13 +291,15 @@ struct SettingsView: View {
                     }
                 }
                 Section {
-                    Button("عيد المعايرة") { engine.resetBaseline() }
+                    Button("أعد المعايرة") { engine.resetBaseline() }
+                    Button("كيف أستخدمه") { showHelp = true }
                     Button("اعرض تنبيه السلامة مرة ثانية") { onboarded = false }
                 } footer: {
                     Text("تيّار ينبهك بس وما يضمن إن المكان آمن. افصل الكهربا واستخدم جهاز كشف أسلاك حقيقي.")
                 }
             }
             .navigationTitle("الإعدادات")
+            .sheet(isPresented: $showHelp) { HowToView() }
         }
     }
 }
