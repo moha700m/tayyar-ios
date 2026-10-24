@@ -1,0 +1,250 @@
+import SwiftUI
+import Charts
+
+struct OnboardingView: View {
+    var done: () -> Void
+    @State private var agreed = false
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Image(systemName: "bolt.trianglebadge.exclamationmark.fill")
+                    .font(.system(size: 64)).foregroundStyle(Theme.amber)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+                Text("تيّار").font(.largeTitle.bold()).frame(maxWidth: .infinity)
+                Text("قبل لا تخرم الجدار، مرّر جوالك عليه وتيّار ينبهك لو حس بسلك كهربا شغال أو حديد").multilineTextAlignment(.center).foregroundStyle(.secondary)
+                card(icon: "exclamationmark.shield.fill", color: .red, title: "تنبيه سلامة مهم",
+                     text: "تيّار ينبهك بس وما يضمن أبداً إن المكان آمن. عدم وجود تنبيه ما يعني إن ما فيه سلك. افصل الكهربا من الطبلون دايماً قبل الخرم، واستخدم جهاز كشف أسلاك حقيقي.")
+                card(icon: "iphone.radiowaves.left.and.right", color: Theme.amber, title: "كيف يشتغل",
+                     text: "يقرأ حساس المغناطيس في جوالك ١٠٠ مرة بالثانية تقريباً، ويدور على ذبذبة الكهربا ٦٠ هيرتز والتغير في المجال المغناطيسي. دقته تختلف من جوال لجوال، فجرّب وضع التجربة أول.")
+                card(icon: "hand.raised.fill", color: .blue, title: "الخطوات",
+                     text: "١. أبعد الجوال عن الجدران وسوّ معايرة\n٢. حط الجوال على الجدار ومرّره ببطء\n٣. لو زاد المؤشر والصوت والرجة، وقف ولا تخرم")
+                Toggle("فاهم إن التطبيق للتنبيه بس وما يغني عن فصل الكهربا", isOn: $agreed)
+                    .toggleStyle(.switch).padding().background(Theme.card, in: .rect(cornerRadius: 14))
+                Button(action: done) {
+                    Text("ابدأ").font(.headline).frame(maxWidth: .infinity).padding()
+                }
+                .buttonStyle(.borderedProminent).disabled(!agreed)
+            }
+            .padding()
+        }
+        .background(Theme.bg)
+    }
+    private func card(icon: String, color: Color, title: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).font(.title2).foregroundStyle(color).frame(width: 32)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.headline)
+                Text(text).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding().background(Theme.card, in: .rect(cornerRadius: 14))
+    }
+}
+
+struct GaugeView: View {
+    var score: Double
+    var body: some View {
+        ZStack {
+            Circle().trim(from: 0.15, to: 0.85)
+                .stroke(Color.white.opacity(0.1), style: StrokeStyle(lineWidth: 22, lineCap: .round))
+                .rotationEffect(.degrees(90))
+            Circle().trim(from: 0.15, to: 0.15 + 0.7 * score)
+                .stroke(AngularGradient(colors: [.green, Theme.amber, .red], center: .center, startAngle: .degrees(0), endAngle: .degrees(252)),
+                        style: StrokeStyle(lineWidth: 22, lineCap: .round))
+                .rotationEffect(.degrees(90))
+                .animation(.easeOut(duration: 0.15), value: score)
+            VStack(spacing: 4) {
+                Text("\(Int(score * 100))").font(.system(size: 64, weight: .bold, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(Theme.level(score))
+                Text(label).font(.headline)
+            }
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("مستوى الخطر \(Int(score * 100)) بالمية، \(label)")
+    }
+    var label: String { score < 0.33 ? "هادي" : (score < 0.66 ? "انتبه" : "لا تخرم هنا") }
+}
+
+struct ScanView: View {
+    @Environment(SensorEngine.self) private var engine
+    @State private var feedback = FeedbackController()
+    @AppStorage("sound") private var sound = true
+    @AppStorage("haptics") private var haptics = true
+    @State private var scanning = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 18) {
+                    if !engine.available {
+                        ContentUnavailableView("ما فيه حساس مغناطيس", systemImage: "xmark.octagon", description: Text("جهازك ما يدعم حساس المغناطيس"))
+                    } else if engine.baselineMagnitude == nil {
+                        CalibrateView()
+                    } else {
+                        GaugeView(score: scanning ? engine.score : 0).frame(height: 260).padding(.top)
+                        HStack(spacing: 12) {
+                            metric("ذبذبة الكهربا", value: engine.humScore, detail: String(format: "×%.1f", engine.humRatio), icon: "bolt.fill")
+                            metric("حديد أو معدن", value: engine.magScore, detail: String(format: "%.0f µT", engine.magDeviation), icon: "square.grid.3x3.fill")
+                        }
+                        liveGraph
+                        Button {
+                            scanning.toggle()
+                            if scanning { feedback.start() } else { feedback.stop() }
+                        } label: {
+                            Label(scanning ? "وقف الفحص" : "ابدأ الفحص", systemImage: scanning ? "stop.fill" : "play.fill")
+                                .font(.headline).frame(maxWidth: .infinity).padding()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(scanning ? .red : Theme.amber)
+                        Button("عيد المعايرة") { scanning = false; feedback.stop(); engine.resetBaseline() }
+                        Label("التطبيق ينبهك بس. افصل الكهربا دايماً قبل الخرم", systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                .padding()
+            }
+            .background(Theme.bg)
+            .navigationTitle("تيّار")
+            .onAppear { engine.start() }
+            .onDisappear { scanning = false; feedback.stop() }
+            .onChange(of: engine.rawMagnitude) {
+                guard scanning else { return }
+                feedback.soundOn = sound; feedback.hapticsOn = haptics
+                feedback.update(score: engine.score)
+            }
+        }
+    }
+
+    private var liveGraph: some View {
+        VStack(alignment: .leading) {
+            Text("المجال المغناطيسي مباشر").font(.subheadline.bold())
+            Chart(engine.history) { p in
+                LineMark(x: .value("t", p.id), y: .value("µT", p.value)).foregroundStyle(Theme.amber)
+            }
+            .chartXAxis(.hidden)
+            .chartYScale(domain: .automatic(includesZero: false))
+            .frame(height: 120)
+            .environment(\.layoutDirection, .leftToRight)
+        }
+        .padding().background(Theme.card, in: .rect(cornerRadius: 14))
+    }
+
+    private func metric(_ title: String, value: Double, detail: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon).font(.subheadline.bold())
+            ProgressView(value: scanning ? value : 0).tint(Theme.level(value))
+            Text(detail).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .padding().frame(maxWidth: .infinity).background(Theme.card, in: .rect(cornerRadius: 14))
+    }
+}
+
+struct CalibrateView: View {
+    @Environment(SensorEngine.self) private var engine
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "scope").font(.system(size: 70)).foregroundStyle(Theme.amber).padding(.top, 30)
+            Text("المعايرة").font(.title.bold())
+            Text("امسك الجوال بعيد عن الجدران والأجهزة والحديد بمسافة متر تقريباً، وخله ثابت لين تخلص المعايرة")
+                .multilineTextAlignment(.center).foregroundStyle(.secondary)
+            if engine.calibrating {
+                ProgressView(value: engine.calibrationProgress).padding(.horizontal)
+                Text("جاري المعايرة لا تحرك الجوال").font(.footnote)
+            } else {
+                Button { engine.beginCalibration() } label: {
+                    Text("ابدأ المعايرة").font(.headline).frame(maxWidth: .infinity).padding()
+                }.buttonStyle(.borderedProminent)
+            }
+            Text(String(format: "سرعة القراءة: %.0f قراءة بالثانية", engine.rawRate)).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct TestModeView: View {
+    @Environment(SensorEngine.self) private var engine
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("سرعة الحساس الفعلية") {
+                    row("المغناطيس الخام", String(format: "%.1f Hz", engine.rawRate))
+                    row("حركة الجهاز المعايرة", String(format: "%.1f Hz", engine.motionRate))
+                    row("الكهربا ٦٠ هيرتز تطلع عند", String(format: "%.1f Hz", engine.aliasFrequency))
+                    if engine.rawRate > 0 && engine.rawRate < 30 {
+                        Text("سرعة الحساس قليلة، كشف ذبذبة الكهربا غالباً ما بيشتغل على جوالك").foregroundStyle(.red).font(.footnote)
+                    }
+                }
+                Section("القراءات") {
+                    row("X", String(format: "%.1f µT", engine.rawField.x))
+                    row("Y", String(format: "%.1f µT", engine.rawField.y))
+                    row("Z", String(format: "%.1f µT", engine.rawField.z))
+                    row("المجموع الخام", String(format: "%.1f µT", engine.rawMagnitude))
+                    row("المجموع المعاير", String(format: "%.1f µT", engine.calibratedMagnitude))
+                    row("دقة المعايرة", engine.calibrationAccuracy)
+                    row("قوة نطاق الكهربا", String(format: "%.4f", engine.bandPower))
+                    row("التذبذب العالي", String(format: "%.4f", engine.hfVariance))
+                }
+                Section {
+                    Chart {
+                        RectangleMark(xStart: .value("من", bandLo), xEnd: .value("إلى", bandHi))
+                            .foregroundStyle(Theme.amber.opacity(0.15))
+                        ForEach(engine.spectrum) { p in
+                            LineMark(x: .value("Hz", p.freq), y: .value("قوة", log10(max(p.power, 1e-6))))
+                                .foregroundStyle(Theme.amber)
+                        }
+                    }
+                    .chartXAxisLabel("Hz")
+                    .frame(height: 220)
+                    .environment(\.layoutDirection, .leftToRight)
+                } header: { Text("الطيف الترددي") } footer: {
+                    Text("قرّب الجوال من سلك شغال (مثل سلك شاحن لابتوب أو مكيف شغال) وشوف هل يطلع ارتفاع في المنطقة الصفرا")
+                }
+            }
+            .navigationTitle("وضع التجربة")
+            .onAppear { engine.start() }
+        }
+    }
+    private var bandLo: Double { engine.autoBand ? max(0, engine.aliasFrequency - 5) : engine.bandLow }
+    private var bandHi: Double { engine.autoBand ? engine.aliasFrequency + 5 : engine.bandHigh }
+    private func row(_ k: String, _ v: String) -> some View {
+        LabeledContent(k) { Text(v).monospacedDigit() }
+    }
+}
+
+struct SettingsView: View {
+    @Environment(SensorEngine.self) private var engine
+    @AppStorage("sound") private var sound = true
+    @AppStorage("haptics") private var haptics = true
+    @AppStorage("onboarded") private var onboarded = true
+    var body: some View {
+        @Bindable var e = engine
+        NavigationStack {
+            Form {
+                Section("التنبيه") {
+                    Toggle("الصوت", isOn: $sound)
+                    Toggle("الرجة", isOn: $haptics)
+                }
+                Section("نطاق ذبذبة الكهربا") {
+                    Picker("تردد الكهربا", selection: $e.mainsHz) {
+                        Text("٦٠ هيرتز (السعودية)").tag(60.0)
+                        Text("٥٠ هيرتز").tag(50.0)
+                    }
+                    Toggle("حساب النطاق تلقائي", isOn: $e.autoBand)
+                    if !e.autoBand {
+                        Stepper(String(format: "من %.0f Hz", e.bandLow), value: $e.bandLow, in: 1...(e.bandHigh - 1))
+                        Stepper(String(format: "إلى %.0f Hz", e.bandHigh), value: $e.bandHigh, in: (e.bandLow + 1)...50)
+                    }
+                }
+                Section {
+                    Button("عيد المعايرة") { engine.resetBaseline() }
+                    Button("اعرض تنبيه السلامة مرة ثانية") { onboarded = false }
+                } footer: {
+                    Text("تيّار ينبهك بس وما يضمن إن المكان آمن. افصل الكهربا واستخدم جهاز كشف أسلاك حقيقي.")
+                }
+            }
+            .navigationTitle("الإعدادات")
+        }
+    }
+}

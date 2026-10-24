@@ -1,0 +1,40 @@
+import SwiftUI
+
+@main
+struct TayyarApp: App {
+    @State private var engine = SensorEngine()
+    var body: some Scene {
+        WindowGroup {
+            RootView()
+                .environment(engine)
+                .environment(\.layoutDirection, .rightToLeft)
+                .environment(\.locale, Locale(identifier: "ar_SA"))
+                .preferredColorScheme(.dark)
+                .tint(Theme.amber)
+        }
+    }
+}
+
+enum Theme {
+    static let amber = Color(red: 1.0, green: 0.78, blue: 0.10)
+    static let bg = Color(red: 0.07, green: 0.08, blue: 0.11)
+    static let card = Color(red: 0.12, green: 0.13, blue: 0.17)
+    static func level(_ s: Double) -> Color {
+        s < 0.33 ? .green : (s < 0.66 ? amber : .red)
+    }
+}
+
+struct RootView: View {
+    @AppStorage("onboarded") private var onboarded = false
+    var body: some View {
+        if onboarded {
+            TabView {
+                ScanView().tabItem { Label("الفحص", systemImage: "bolt.horizontal.circle") }
+                TestModeView().tabItem { Label("وضع التجربة", systemImage: "waveform.path.ecg") }
+                SettingsView().tabItem { Label("الإعدادات", systemImage: "slider.horizontal.3") }
+            }
+        } else {
+            OnboardingView { onboarded = true }
+        }
+    }
+}
