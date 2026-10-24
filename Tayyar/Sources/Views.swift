@@ -84,8 +84,8 @@ struct ScanView: View {
                         GaugeView(score: scanning ? engine.score : 0).frame(height: 260)
                         scanHint
                         HStack(spacing: 12) {
-                            metric("ذبذبة الكهربا", value: engine.humScore, detail: String(format: "×%.1f", engine.humRatio), icon: "bolt.fill")
-                            metric("حديد أو معدن", value: engine.magScore, detail: String(format: "%.0f µT", engine.magDeviation), icon: "square.grid.3x3.fill")
+                            metric("ذبذبة الكهربا", value: engine.humScore, detail: engine.humMeasurable ? (engine.humLikely ? "محتمل" : String(format: "×%.1f", engine.humRatio)) : "غير متاح", icon: "bolt.fill")
+                            metric("حديد أو معدن", value: engine.magScore, detail: engine.metalLikely ? String(format: "%.0f µT محتمل", engine.magDeviation) : String(format: "%.0f µT", engine.magDeviation), icon: "square.grid.3x3.fill")
                         }
                         liveGraph
                         Button {
@@ -102,6 +102,12 @@ struct ScanView: View {
                             Label("أعد المعايرة", systemImage: "arrow.counterclockwise").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 50)
                         }
                         .buttonStyle(.bordered)
+                        if !engine.humMeasurable {
+                            Label("سرعة حساس جوالك ما تسمح بقياس ذبذبة الكهربا بدقة، المؤشر الحين يعتمد على المعدن بس", systemImage: "info.circle.fill")
+                                .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Label("تنبيه صريح: تيّار أداة مساعدة تعتمد على حساس البوصلة في الجوال، مو جهاز كشف معتمد. يلقط السلك اللي يمشي فيه تيار قوي (شغّل جهاز يسحب كهربا مثل سخان أو استشوار)، وما يلقط السلك اللي ما عليه حمل. الحديد والمسامير تبان في مؤشر المعدن. افصل الكهربا من الطبلون دايماً قبل الخرم", systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         Label("التطبيق ينبهك بس. افصل الكهربا دايماً قبل الخرم", systemImage: "exclamationmark.triangle.fill")
                             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
@@ -221,7 +227,7 @@ struct TestModeView: View {
                 Section("سرعة الحساس الفعلية") {
                     row("المغناطيس الخام", String(format: "%.1f Hz", engine.rawRate))
                     row("حركة الجهاز المعايرة", String(format: "%.1f Hz", engine.motionRate))
-                    row("الكهربا ٦٠ هيرتز تطلع عند", String(format: "%.1f Hz", engine.aliasFrequency))
+                    row("تردد الكهربا يطلع عند", String(format: "%.1f Hz", engine.aliasFrequency))
                     if engine.rawRate > 0 && engine.rawRate < 30 {
                         Text("سرعة الحساس قليلة، كشف ذبذبة الكهربا غالباً ما بيشتغل على جوالك").foregroundStyle(.red).font(.footnote)
                     }
@@ -233,8 +239,8 @@ struct TestModeView: View {
                     row("المجموع الخام", String(format: "%.1f µT", engine.rawMagnitude))
                     row("المجموع المعاير", String(format: "%.1f µT", engine.calibratedMagnitude))
                     row("دقة المعايرة", engine.calibrationAccuracy)
-                    row("قوة نطاق الكهربا", String(format: "%.4f", engine.bandPower))
-                    row("التذبذب العالي", String(format: "%.4f", engine.hfVariance))
+                    row("قوة الكهربا عند التردد", String(format: "%.4f", engine.bandPower))
+                    row("نسبة الإشارة للضجيج", String(format: "%.1f dB (المعايرة %.1f)", engine.hfVariance, engine.baselineSNR))
                 }
                 Section {
                     Chart {
@@ -256,8 +262,8 @@ struct TestModeView: View {
             .onAppear { engine.start() }
         }
     }
-    private var bandLo: Double { engine.autoBand ? max(0, engine.aliasFrequency - 5) : engine.bandLow }
-    private var bandHi: Double { engine.autoBand ? engine.aliasFrequency + 5 : engine.bandHigh }
+    private var bandLo: Double { engine.autoBand ? max(0, engine.aliasFrequency - 2) : engine.bandLow }
+    private var bandHi: Double { engine.autoBand ? engine.aliasFrequency + 2 : engine.bandHigh }
     private func row(_ k: String, _ v: String) -> some View {
         LabeledContent(k) { Text(v).monospacedDigit() }
     }
