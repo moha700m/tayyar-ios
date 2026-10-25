@@ -73,6 +73,7 @@ final class SensorEngine {
     @ObservationIgnored private var lastRaw = (x: 0.0, y: 0.0, z: 0.0)
     @ObservationIgnored private var lastCalMag = 0.0
     @ObservationIgnored private var acc = "—"
+    @ObservationIgnored private var askedUpgrade = false
     @ObservationIgnored private var epoch = 0          // queue side
     @ObservationIgnored private var wantedEpoch = 0    // main side
 
@@ -107,6 +108,12 @@ final class SensorEngine {
                 @unknown default: self.acc = "—"
                 }
                 self.motionTimes.append(m.timestamp); if self.motionTimes.count > 120 { self.motionTimes.removeFirst() }
+                if self.latestCalOK && !self.useCal && self.core.phase == .ready && !self.askedUpgrade {
+                    // raw-mode baseline depends on orientation (hard-iron offset); now that iOS has a
+                    // corrected field, ask for one recalibration so tilting/turning stops mattering
+                    self.askedUpgrade = true
+                    DispatchQueue.main.async { self.needsRecalibration = true }
+                }
                 if self.latestCalOK {
                     self.lastCalMag = (f.x * f.x + f.y * f.y + f.z * f.z).squareRoot()
                     if self.useCal { self.core.ingestField(t: m.timestamp, x: f.x, y: f.y, z: f.z, gyro: self.lastGyro) }
@@ -126,6 +133,7 @@ final class SensorEngine {
             self.epoch = e
             // lock ONE source for baseline and live values
             self.useCal = self.manager.isDeviceMotionAvailable && self.latestCalOK
+            self.askedUpgrade = false
             self.core.startCalibration()
         }
     }
@@ -196,7 +204,7 @@ final class SensorEngine {
             self.baselineMagnitude = snap.base; self.baselineNoise = snap.std; self.baselineSNR = snap.bsnr
             self.magScore = snap.m; self.humScore = snap.h; self.metalLikely = snap.ml; self.humLikely = snap.hl
             self.magDeviation = snap.dev; self.hfVariance = snap.snr; self.aliasFrequency = snap.fa
-            self.humMeasurable = snap.meas; self.needsRecalibration = snap.recal; self.suppressedByMotion = snap.sup
+            self.humMeasurable = snap.meas; self.needsRecalibration = snap.recal || (self.needsRecalibration && !uc); self.suppressedByMotion = snap.sup
             self.humRatio = pow(10, max(0, snap.snr - snap.bsnr) / 10); self.bandPower = snap.snr
         }
     }

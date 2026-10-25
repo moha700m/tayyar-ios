@@ -97,4 +97,16 @@ final class DetectorTests: XCTestCase {
         let s = Sim(); s.calibrate()
         XCTAssertEqual(s.core.score, 0); XCTAssertFalse(s.core.metalLikely)
     }
+
+    /// Calibrate upright, then lay the phone flat on a wall in any orientation: |B| is orientation-independent.
+    func testOrientationChangeDoesNotTrigger() {
+        let s = Sim(); s.calibrate()
+        var anyLikely = false, maxScore = 0.0
+        for (ex, ey, ez) in [(45.0, 0.0, 0.0), (0.0, 0.0, 45.0), (-30.0, 30.0, 10.0), (0.0, -44.0, 9.0)] {
+            let n = (ex*ex + ey*ey + ez*ez).squareRoot(), m = (20.0*20 + 25 + 1600).squareRoot()
+            s.earth = (ex * m / n, ey * m / n, ez * m / n)
+            s.run(5, rot: 0.3) { c, _ in anyLikely = anyLikely || c.metalLikely; maxScore = max(maxScore, c.metalScore) }
+        }
+        XCTAssertFalse(anyLikely); XCTAssertLessThan(maxScore, 0.2)
+    }
 }

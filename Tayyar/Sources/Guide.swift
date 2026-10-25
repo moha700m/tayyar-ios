@@ -6,6 +6,8 @@ struct PhoneDiagram: View {
     var compact = false
     @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("sensorX") private var sx = 0.5
+    @AppStorage("sensorY") private var sy = 0.45
 
     var body: some View {
         GeometryReader { geo in
@@ -26,7 +28,8 @@ struct PhoneDiagram: View {
                         }
                     }
                     .offset(x: w * 0.07, y: w * 0.07)
-                // sensor zone: top area beside the camera
+                // sensor zone: on recent iPhones the compass sits on the wireless-charging (MagSafe) flex
+                // behind the back glass, roughly mid-back. Exact spot varies; user can pin it with SensorFinderView.
                 ZStack {
                     Circle().fill(Theme.amber.opacity(0.25))
                         .frame(width: w * 0.42)
@@ -35,7 +38,7 @@ struct PhoneDiagram: View {
                     Circle().fill(Theme.amber).frame(width: w * 0.14)
                     Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: w * 0.09, weight: .bold)).foregroundStyle(.black)
                 }
-                .position(x: w * 0.72, y: w * 0.2)
+                .position(x: w * sx, y: h * sy)
                 Image(systemName: "apple.logo").font(.system(size: w * 0.16)).foregroundStyle(.white.opacity(0.25))
                     .position(x: w / 2, y: h * 0.52)
             }
@@ -47,7 +50,7 @@ struct PhoneDiagram: View {
             withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { pulse = true }
         }
         .accessibilityElement()
-        .accessibilityLabel("ظهر الجوال، الحساس في أعلى الجوال جنب الكاميرا")
+        .accessibilityLabel("ظهر الجوال، الدائرة الصفرا مكان الحساس التقريبي")
     }
 }
 
@@ -60,10 +63,13 @@ struct SensorLocator: View {
                 Label("الحساس هنا", systemImage: "arrow.left")
                     .font(.title3.bold()).foregroundStyle(Theme.amber)
                     .environment(\.layoutDirection, .leftToRight)
-                Text("في أعلى الجوال جنب الكاميرا. هذا الجزء هو اللي تلصقه على الجدار")
+                Text(SensorInfo.hint)
                     .font(.body).fixedSize(horizontal: false, vertical: true)
                 Label("الدائرة الصفرا = مكان الحساس", systemImage: "circle.fill")
                     .font(.callout).foregroundStyle(.secondary)
+                NavigationLink { SensorFinderView() } label: {
+                    Label("حدد مكانه بالضبط في جوالك", systemImage: "scope").font(.callout.bold())
+                }
             }
             .padding(.top, 20)
         }
@@ -203,10 +209,10 @@ struct GuideSteps: View {
                 .environment(\.layoutDirection, .leftToRight)
                 .accessibilityHidden(true)
             }
-            StepCard(number: 2, title: "حط أعلى الجوال على الجدار", text: "اقلب الجوال وخل ظهره على الجدار، والجزء العلوي اللي فيه الكاميرا هو اللي يلمس الجدار لأن الحساس هناك", icon: "hand.point.up.left.fill") {
+            StepCard(number: 2, title: "حط ظهر الجوال مسطّح على الجدار", text: "اقلب الجوال وخل ظهره كله ملاصق للجدار بدون ما تميله. الاتجاه ما يفرق لأن تيّار يقيس قوة المجال الكلية، المهم مكان الحساس (الدائرة الصفرا) يمر فوق المكان اللي تبي تفحصه", icon: "hand.point.up.left.fill") {
                 SensorLocator()
             }
-            StepCard(number: 3, title: "حرّكه ببطء يمين ويسار ثم فوق وتحت", text: "مرّر الجوال ببطء شديد، تقريباً شبر كل ثانيتين. اللي يتحرك بسرعة ما يلقط شي", icon: "arrow.up.and.down.and.arrow.left.and.right") {
+            StepCard(number: 3, title: "حرّكه ببطء يمين ويسار ثم فوق وتحت", text: "خله ملاصق للجدار ومرّره ببطء، تقريباً شبر كل ثانيتين، بدون ما تلفّه. اللي يتحرك بسرعة ما يلقط شي", icon: "arrow.up.and.down.and.arrow.left.and.right") {
                 WallSweepView()
                 WallSweepView(vertical: true)
             }
@@ -249,5 +255,77 @@ struct HowToView: View {
                     }
                 }
         }
+    }
+}
+
+
+enum SensorInfo {
+    /// Hardware model identifier via utsname, e.g. "iPhone17,1".
+    static var model: String {
+        var u = utsname(); uname(&u)
+        return withUnsafeBytes(of: &u.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+    }
+    static var hint: String {
+        "في الآيفونات الحديثة حساس البوصلة على شريحة الشحن اللاسلكي خلف الزجاج، تقريباً في نص ظهر الجوال وليس جنب الكاميرا. المكان الدقيق يختلف حسب الموديل، فحدده مرة وحدة بأداة التحديد"
+    }
+}
+
+/// Lets the user pin the real magnetometer hotspot: hold a steel key/screwdriver over each cell; peak change wins.
+struct SensorFinderView: View {
+    @Environment(SensorEngine.self) private var engine
+    @AppStorage("sensorX") private var sx = 0.5
+    @AppStorage("sensorY") private var sy = 0.45
+    @State private var ref: Double?
+    @State private var peaks: [Int: Double] = [:]
+    @State private var active: Int?
+    @State private var done = false
+    private let cols = 3, rows = 4
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Text("جهازك: \(SensorInfo.model)").font(.callout).foregroundStyle(.secondary)
+                Text("حط الجوال على طاولة بعيد عن الحديد، ظهره لفوق. اضغط على مربع، وحط مفتاح حديد أو مفك على نفس المكان في ظهر الجوال ٣ ثواني. كرر لكل المربعات، والمربع اللي يعطي أعلى رقم هو مكان الحساس")
+                    .font(.body).fixedSize(horizontal: false, vertical: true)
+                Text(String(format: "التغير الحالي: %.1f µT", live)).font(.title2.bold()).monospacedDigit()
+                Grid(horizontalSpacing: 6, verticalSpacing: 6) {
+                    ForEach(0..<rows, id: \.self) { r in
+                        GridRow {
+                            ForEach(0..<cols, id: \.self) { c in
+                                let i = r * cols + c
+                                Button { active = i } label: {
+                                    VStack {
+                                        Text(peaks[i].map { String(format: "%.0f", $0) } ?? "—").font(.headline).monospacedDigit()
+                                    }
+                                    .frame(maxWidth: .infinity, minHeight: 64)
+                                    .background(active == i ? Theme.amber.opacity(0.5) : (best == i ? Color.green.opacity(0.4) : Theme.card), in: .rect(cornerRadius: 10))
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+                .environment(\.layoutDirection, .leftToRight)
+                .padding().background(Color(white: 0.2), in: .rect(cornerRadius: 28))
+                Text("الشبكة = ظهر الجوال وأنت تشوفه (الكاميرا فوق يسار)").font(.footnote).foregroundStyle(.secondary)
+                Button {
+                    if let b = best { sx = (Double(b % cols) + 0.5) / Double(cols); sy = (Double(b / cols) + 0.5) / Double(rows); done = true }
+                } label: { Label("احفظ مكان الحساس", systemImage: "checkmark").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 50) }
+                .buttonStyle(.borderedProminent).disabled(best == nil)
+                if done { Text("تم الحفظ، الرسمة في الشرح صارت على مكان حساس جوالك").foregroundStyle(.green) }
+                Button("ابدأ من جديد") { peaks = [:]; ref = engine.currentMagnitude; done = false }.buttonStyle(.bordered)
+            }.padding()
+        }
+        .background(Theme.bg)
+        .navigationTitle("تحديد مكان الحساس")
+        .onAppear { engine.start(); ref = nil }
+        .onChange(of: engine.rawMagnitude) {
+            if ref == nil, engine.currentMagnitude > 0 { ref = engine.currentMagnitude }
+            if let a = active { peaks[a] = max(peaks[a] ?? 0, live) }
+        }
+    }
+    private var live: Double { ref.map { abs(engine.currentMagnitude - $0) } ?? 0 }
+    private var best: Int? {
+        guard let m = peaks.max(by: { $0.value < $1.value }), m.value > 3 else { return nil }
+        return m.key
     }
 }

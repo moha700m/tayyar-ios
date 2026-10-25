@@ -5,6 +5,7 @@ struct OnboardingView: View {
     var done: () -> Void
     @State private var agreed = false
     var body: some View {
+        NavigationStack {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Image(systemName: "bolt.trianglebadge.exclamationmark.fill")
@@ -24,6 +25,7 @@ struct OnboardingView: View {
             .padding()
         }
         .background(Theme.bg)
+        }
     }
     private func card(icon: String, color: Color, title: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -152,7 +154,7 @@ struct ScanView: View {
             Image(systemName: scanning ? status.icon : "pause.circle.fill").font(.system(size: 40))
             VStack(alignment: .leading, spacing: 4) {
                 Text(scanning ? status.title : "الفحص واقف").font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
-                Text(scanning ? status.meaning : "اضغط ابدأ الفحص تحت وحط أعلى الجوال على الجدار").font(.callout).fixedSize(horizontal: false, vertical: true)
+                Text(scanning ? status.meaning : "اضغط ابدأ الفحص وحط ظهر الجوال مسطّح على الجدار").font(.callout).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -168,7 +170,7 @@ struct ScanView: View {
         HStack(spacing: 14) {
             PhoneDiagram().frame(height: 110)
             VStack(alignment: .leading, spacing: 8) {
-                Label("الصق أعلى الجوال على الجدار", systemImage: "arrow.up.circle.fill").font(.headline)
+                Label("الصق ظهر الجوال مسطّح على الجدار", systemImage: "iphone.gen3").font(.headline)
                 Label("حركه ببطء يمين ويسار", systemImage: "arrow.left.and.right.circle.fill").font(.headline)
                 Button("شوف الشرح بالصور") { showHelp = true }.font(.callout.bold())
             }
@@ -321,6 +323,7 @@ struct SettingsView: View {
                 }
                 Section {
                     Button("أعد المعايرة") { engine.resetBaseline() }
+                    NavigationLink("حدد مكان الحساس في جوالك") { SensorFinderView() }
                     Button("كيف أستخدمه") { showHelp = true }
                     Button("اعرض تنبيه السلامة مرة ثانية") { onboarded = false }
                 } footer: {
