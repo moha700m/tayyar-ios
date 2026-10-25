@@ -23,7 +23,7 @@ public final class DetectorCore {
         public var humMinSNR = 10.0          // dB above neighbour floor
         public var humAboveCal = 8.0         // dB above calibration SNR
         public var humDwell = 1.0            // s continuously high before "likely"
-        public var humRelease = 0.15         // s low (short window) before clearing
+        public var humRelease = 0.1         // s low (short window) before clearing
         public var humShortN = 48            // short window used only for fast release
         public var offsetStuck = 4.0         // s of flat, unchanging deviation → treat as sensor offset shift
         public var mainsHz = 60.0
@@ -56,6 +56,7 @@ public final class DetectorCore {
     private var metalAboveSince: Double?
     private var driftAccum = 0.0
     private var flatSince: Double?, flatRef = 0.0
+    private var shortPeak = 0.0
     private var bx: [Double] = [], by: [Double] = [], bz: [Double] = [], ts: [Double] = []
     private var hop = 0
     private var humAboveSince: Double?, humBelowSince: Double?
@@ -217,7 +218,9 @@ public final class DetectorCore {
         for off in [-4.0, -3, 3, 4] where kS + off > 1 && kS + off < Double(sn / 2) - 0.5 { nS.append(sAxes.reduce(0) { $0 + goertzel($1, k: kS + off) }) }
         nS.sort()
         let snrShort = nS.isEmpty ? snrDB : 10 * log10(max(tS, 1e-14) / max(1e-12, nS[nS.count / 2]))
-        if snrShort < thr - 3 {
+        if humLikely { shortPeak = max(shortPeak * 0.98, tS) } else { shortPeak = 0 }
+        let dropped = humLikely && tS < 0.2 * shortPeak
+        if snrShort < thr - 3 || dropped {
             humAboveSince = nil
             if humBelowSince == nil { humBelowSince = t }
             if t - humBelowSince! >= cfg.humRelease { humLikely = false }
@@ -227,7 +230,7 @@ public final class DetectorCore {
             if t - humAboveSince! >= cfg.humDwell { humLikely = true }
         }
         let target01 = humLikely ? max(0.4, min(1, (snrDB - thr + 6) / 15)) : 0
-        humScore += (target01 > humScore ? 0.5 : 0.7) * (target01 - humScore)
+        humScore += (target01 > humScore ? 0.5 : 0.85) * (target01 - humScore)
         if !humLikely && humScore < 0.02 { humScore = 0 }
     }
 }
