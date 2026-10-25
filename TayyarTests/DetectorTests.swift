@@ -140,4 +140,20 @@ final class DetectorTests: XCTestCase {
         s.run(8, rot: 0.3, dc: { $0 >= t0 ? 30 : 0 })
         XCTAssertLessThan(s.core.score, 0.1); XCTAssertTrue(s.core.needsRecalibration)
     }
+
+    func testEveryVoiceCueHasArabicText() {
+        for c in VoiceCue.allCases { XCTAssertFalse(c.text.isEmpty, "\(c)"); XCTAssertNotNil(c.text.range(of: "\\p{Arabic}", options: .regularExpression)) }
+    }
+    func testHistoryRoundTripAndCap() {
+        let d = UserDefaults(suiteName: "tayyar-test")!; ScanHistory.clear(d)
+        for i in 0..<210 { ScanHistory.add(ScanRecord(date: Date(), kind: i % 2 == 0 ? "metal" : "wire", peak: i % 100), d) }
+        let all = ScanHistory.load(d)
+        XCTAssertEqual(all.count, 200); XCTAssertEqual(all.first?.peak, 209 % 100)
+        ScanHistory.clear(d); XCTAssertTrue(ScanHistory.load(d).isEmpty)
+    }
+    func testGeigerRateRisesWithScore() {
+        XCTAssertNil(Geiger.interval(score: 0.02))
+        let a = Geiger.interval(score: 0.2)!, b = Geiger.interval(score: 0.9)!
+        XCTAssertGreaterThan(a, b); XCTAssertGreaterThan(b, 0.05)
+    }
 }

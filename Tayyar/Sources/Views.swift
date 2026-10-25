@@ -72,6 +72,8 @@ struct ScanView: View {
     @AppStorage("haptics") private var haptics = true
     @State private var scanning = false
     @State private var showHelp = false
+    @AppStorage("geiger") private var geiger = false
+    @State private var sessionPeak = 0.0
 
     var body: some View {
         NavigationStack {
@@ -102,7 +104,7 @@ struct ScanView: View {
                         liveGraph
                         Button {
                             scanning.toggle()
-                            if scanning { feedback.start() } else { feedback.stop() }
+                            if scanning { feedback.start(); VoiceGuide.shared.say(.scanStart) } else { feedback.stop() }
                         } label: {
                             Label(scanning ? "وقف الفحص" : "ابدأ الفحص", systemImage: scanning ? "stop.fill" : "play.fill")
                                 .font(.title2.bold()).frame(maxWidth: .infinity, minHeight: 60)
@@ -110,7 +112,12 @@ struct ScanView: View {
                         .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.roundedRectangle(radius: 18))
                         .tint(scanning ? .red : Theme.amber)
-                        Button { scanning = false; feedback.stop(); engine.resetBaseline() } label: {
+                        if sessionPeak > 0.05 {
+                            ShareLink(item: ResultCard.render(peak: sessionPeak), preview: SharePreview("نتيجة تيّار", image: ResultCard.render(peak: sessionPeak))) {
+                                Label("شارك النتيجة", systemImage: "square.and.arrow.up").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 50)
+                            }.buttonStyle(.bordered)
+                        }
+                        Button { scanning = false; feedback.stop(); sessionPeak = 0; engine.resetBaseline() } label: {
                             Label("أعد المعايرة", systemImage: "arrow.counterclockwise").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 50)
                         }
                         .buttonStyle(.bordered)
@@ -141,9 +148,22 @@ struct ScanView: View {
             .onDisappear { scanning = false; feedback.stop() }
             .onChange(of: engine.rawMagnitude) {
                 guard scanning else { return }
-                feedback.soundOn = sound; feedback.hapticsOn = haptics
+                feedback.soundOn = sound; feedback.hapticsOn = haptics; feedback.geiger = geiger
                 feedback.update(score: engine.score)
+                sessionPeak = max(sessionPeak, engine.score)
             }
+            .onChange(of: engine.metalLikely) { _, on in
+                guard scanning, on else { return }
+                VoiceGuide.shared.say(.scanMetal)
+                ScanHistory.add(ScanRecord(date: .now, kind: "metal", peak: Int(engine.score * 100)))
+            }
+            .onChange(of: engine.humLikely) { _, on in
+                guard scanning, on else { return }
+                VoiceGuide.shared.say(.scanWire)
+                ScanHistory.add(ScanRecord(date: .now, kind: "wire", peak: Int(engine.score * 100)))
+            }
+            .onChange(of: engine.suppressedByMotion) { _, on in if scanning && on { VoiceGuide.shared.say(.scanTooFast, minGap: 6) } }
+            .onChange(of: engine.needsRecalibration) { _, on in if on { VoiceGuide.shared.say(.scanRecal, minGap: 10) } }
         }
     }
 
@@ -232,6 +252,10 @@ struct CalibrateView: View {
             }
             Text(String(format: "سرعة القراءة: %.0f قراءة بالثانية", engine.rawRate)).font(.callout).foregroundStyle(.secondary)
         }
+        .onChange(of: engine.calibrating) { was, now in
+            if now { VoiceGuide.shared.say(.calHold) } else if was { VoiceGuide.shared.say(.calDone) }
+        }
+        .onChange(of: engine.calibrationTooNoisy) { _, n in if n && engine.calibrating { VoiceGuide.shared.say(.calNoisy, minGap: 5) } }
     }
 }
 
@@ -300,6 +324,8 @@ struct SettingsView: View {
     @Environment(SensorEngine.self) private var engine
     @AppStorage("sound") private var sound = true
     @AppStorage("haptics") private var haptics = true
+    @AppStorage("geiger") private var geiger = false
+    @AppStorage("voice") private var voice = true
     @AppStorage("onboarded") private var onboarded = true
     @State private var showHelp = false
     var body: some View {
@@ -308,7 +334,14 @@ struct SettingsView: View {
             Form {
                 Section("التنبيه") {
                     Toggle("الصوت", isOn: $sound)
+                    Toggle("صوت عدّاد (طقطقة تزيد كل ما قربت)", isOn: $geiger)
                     Toggle("الرجة", isOn: $haptics)
+                    Toggle("الإرشاد الصوتي", isOn: $voice)
+                }
+                Section("أدوات") {
+                    NavigationLink("سجل الفحص") { HistoryView() }
+                    NavigationLink("ميزان الاستواء") { LevelView() }
+                    NavigationLink("الفرق بين الحديد والسلك") { ExplainView() }
                 }
                 Section("نطاق ذبذبة الكهربا") {
                     Picker("تردد الكهربا", selection: $e.mainsHz) {

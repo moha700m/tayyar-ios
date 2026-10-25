@@ -39,6 +39,7 @@ final class SensorEngine {
     var needsRecalibration = false
     var suppressedByMotion = false
     var usingCalibratedField = true
+    var gravity = (x: 0.0, y: 0.0, z: -1.0)
 
     var humScore: Double = 0
     var magScore: Double = 0
@@ -96,6 +97,8 @@ final class SensorEngine {
             manager.showsDeviceMovementDisplay = true
             manager.startDeviceMotionUpdates(using: .xArbitraryCorrectedZVertical, to: queue) { [weak self] m, _ in
                 guard let self, let m else { return }
+                let gv = m.gravity
+                if Int(m.timestamp * 30) != Int((m.timestamp - 0.01) * 30) { DispatchQueue.main.async { self.gravity = (gv.x, gv.y, gv.z) } }
                 let r = m.rotationRate
                 self.lastGyro = (r.x * r.x + r.y * r.y + r.z * r.z).squareRoot()
                 let f = m.magneticField.field

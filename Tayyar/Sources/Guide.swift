@@ -328,6 +328,15 @@ struct SensorFinderView: View {
         .navigationTitle("مكان الحساس")
         .onAppear { engine.start() }
         .onReceive(timer) { _ in tick() }
+        .onAppear { VoiceGuide.shared.say(.finderIntro) }
+        .onChange(of: step) { _, st in
+            switch st {
+            case .cell: VoiceGuide.shared.say(.finderPlace, minGap: 1)
+            case .lift: VoiceGuide.shared.say(.finderNext, minGap: 1)
+            case .result: VoiceGuide.shared.say(peaks[best] > 3 ? .finderDone : .finderProblem, minGap: 1)
+            default: break
+            }
+        }
     }
 
     private var intro: some View {
