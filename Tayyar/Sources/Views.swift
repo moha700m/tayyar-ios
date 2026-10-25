@@ -104,7 +104,7 @@ struct ScanView: View {
                             .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
                         HStack(spacing: 12) {
                             tile("معدن", value: String(format: "%.0f µT", engine.magDeviation), level: engine.magScore, likely: engine.metalLikely)
-                            tile(engine.mainsHz == 60 ? "ذبذبة ٦٠Hz" : "ذبذبة ٥٠Hz", value: engine.humMeasurable ? String(format: "×%.1f", engine.humRatio) : "—", level: engine.humScore, likely: engine.humLikely)
+                            tile(engine.mainsHz == 60 ? "ذبذبة ٦٠Hz · تجريبي" : "ذبذبة ٥٠Hz · تجريبي", value: engine.humMeasurable ? String(format: "×%.1f", engine.humRatio) : "—", level: engine.humScore, likely: engine.humLikely)
                         }
                         HStack(spacing: 12) {
                             Panel(padding: 12) {
@@ -141,7 +141,7 @@ struct ScanView: View {
                         liveGraph
                         Button { stopAndRecal() } label: { Label("أعد المعايرة", systemImage: "arrow.triangle.2.circlepath") }
                             .buttonStyle(SecondaryButtonStyle())
-                        Text("تقدير مساعد وليس جهاز سلامة، وممكن يفوّت أسلاك. افصل الكهربا من الطبلون واستخدم جهاز كشف احترافي قبل الخرم. يلقط السلك اللي عليه حمل، والحديد والمسامير تبان في مؤشر المعدن.")
+                        Text("تقدير مساعد وليس جهاز سلامة، وممكن يفوّت أسلاك. افصل الكهربا من الطبلون واستخدم جهاز كشف احترافي قبل الخرم. مؤشر الذبذبة تجريبي ويلقط بس الأسلاك اللي عليها حمل قوي وقريبة جداً، والحديد والمسامير تبان في مؤشر المعدن.")
                             .font(.footnote).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                             .padding(.top, 8)
                     }
@@ -309,6 +309,13 @@ struct TestModeView: View {
         NavigationStack {
             List {
                 Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack { Text("مستوى ذبذبة الكهربا (تجريبي)").font(.subheadline); Spacer()
+                            Text(String(format: "%.1f dB", engine.hfVariance - engine.baselineSNR)).font(Theme.mono(15)).environment(\.layoutDirection, .leftToRight) }
+                        ProgressView(value: engine.humLevel).tint(Theme.level(engine.humLevel))
+                        Text("قرّب ظهر الجوال (مكان الحساس) من شاحن لابتوب أو سلك مكيف أو سخان شغال. الذبذبة ضعيفة جداً وتبان بس قريب من الأسلاك اللي عليها حمل قوي").font(.caption).foregroundStyle(Theme.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
                     debugGrid
                 } header: { Text("قراءة مباشرة للتشخيص") } footer: {
                     Text("الفرق = |المجال بعد الفلترة − الأساس|. لما تبعد الجوال عن الحديد لازم الفرق ونقاط المعدن ينزلون للصفر خلال أقل من ثانية. لو ثبت فرق كبير ٦ ثواني، تيّار يصفّر تلقائياً")

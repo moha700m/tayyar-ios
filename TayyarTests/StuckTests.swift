@@ -100,3 +100,18 @@ final class LocatorTests: XCTestCase {
         XCTAssertEqual(LocatorCore.peakDelta(v + Array(repeating: 58, count: 60), reference: 50, noise: 0.5), 7, accuracy: 0.01)
     }
 }
+
+final class HumTests: XCTestCase {
+    /// Weak hum (0.4 µT, about the per-axis noise) near a loaded cable should still register.
+    func testWeakHumDetected() {
+        let s = Sim(); s.calibrate()
+        var hit = false
+        s.run(4, ac: { 0.4 * sin(2 * .pi * 60 * $0) }) { c, _ in hit = hit || c.humLikely }
+        XCTAssertTrue(hit); XCTAssertGreaterThan(s.core.humLevel, 0.3)
+    }
+    func testHumLevelQuietWhenNoHum() {
+        let s = Sim(); s.calibrate(); var mx = 0.0
+        s.run(10) { c, _ in mx = max(mx, c.humLevel) }
+        XCTAssertLessThan(mx, 0.45)
+    }
+}

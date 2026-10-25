@@ -20,9 +20,9 @@ public final class DetectorCore {
         public var driftRecal = 8.0          // µT of accumulated drift → ask for recalibration
         public var humN = 128                // samples per Goertzel window (~1.3 s @100 Hz)
         public var humHop = 10               // analyse every N raw samples (~0.1 s)
-        public var humMinSNR = 10.0          // dB above neighbour floor
-        public var humAboveCal = 8.0         // dB above calibration SNR
-        public var humDwell = 1.0            // s continuously high before "likely"
+        public var humMinSNR = 7.0           // dB above neighbour floor (v4: was 10, too strict for real cables)
+        public var humAboveCal = 5.0         // dB above calibration SNR (was 8)
+        public var humDwell = 0.8            // s continuously high before "likely"
         public var humRelease = 0.1         // s low (short window) before clearing
         public var humShortN = 48            // short window used only for fast release
         public var holdLimit = 6.0           // s: any deviation held this long is re-zeroed (offset shift, not an object)
@@ -47,6 +47,7 @@ public final class DetectorCore {
     public private(set) var suppressedByMotion = false
     public private(set) var spectrum: [(Double, Double)] = []
     public private(set) var autoZeroCount = 0
+    public private(set) var humLevel = 0.0          // 0…1 continuous SNR above calibration (live bar, no hysteresis)
     public private(set) var filtered = 0.0           // median+EMA field magnitude used for metal (µT)
     public private(set) var hardIron = (x: 0.0, y: 0.0, z: 0.0)
     public var score: Double { max(humScore, metalScore) }
@@ -237,6 +238,7 @@ public final class DetectorCore {
         if phase == .calibrating || phase == .warmup { calSNRs.append(snrDB); return }
         guard phase == .ready else { return }
         let thr = max(cfg.humMinSNR, baselineSNR + cfg.humAboveCal)
+        humLevel = max(0, min(1, (snrDB - baselineSNR) / 20))
         // short-window SNR reacts within ~0.3 s when the wire/load goes away
         let sn = cfg.humShortN
         let sAxes = [prep(Array(bx.suffix(sn))), prep(Array(by.suffix(sn))), prep(Array(bz.suffix(sn)))]

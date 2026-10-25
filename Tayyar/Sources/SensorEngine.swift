@@ -60,6 +60,7 @@ final class SensorEngine {
     var filteredMagnitude: Double = 0   // after median + EMA
     var hardIronMagnitude: Double = 0
     var autoZeroCount = 0
+    var humLevel: Double = 0
     var phaseName = "—"
     var sensitivity: Double = UserDefaults.standard.object(forKey: "sensitivity") as? Double ?? 1.0 {
         didSet { UserDefaults.standard.set(sensitivity, forKey: "sensitivity"); let v = sensitivity; queue.addOperation { self.core.cfg.sensitivity = v } }
@@ -218,7 +219,7 @@ final class SensorEngine {
         let sp = c.spectrum.enumerated().map { SpectrumPoint(id: $0.offset, freq: $0.element.0, power: $0.element.1) }
         let rr = rate(rawTimes), mr = rate(motionTimes), raw = lastRaw, cal = lastCalMag, a = acc, h = histBuf, uc = useCal
         let rec = trace.count, ep = epoch
-        let dbg = (filt: c.filtered, hm: (hi.x * hi.x + hi.y * hi.y + hi.z * hi.z).squareRoot(), az: c.autoZeroCount,
+        let dbg = (filt: c.filtered, hm: (hi.x * hi.x + hi.y * hi.y + hi.z * hi.z).squareRoot(), az: c.autoZeroCount, hl: c.humLevel,
                    ph: { switch c.phase { case .idle: "idle"; case .warmup: "warmup"; case .calibrating: "calibrating"; case .ready: "ready" } }())
         DispatchQueue.main.async {
             self.rawRate = rr; self.motionRate = mr; self.rawField = raw; self.rawMagnitude = mag
@@ -226,7 +227,7 @@ final class SensorEngine {
             if !sp.isEmpty { self.spectrum = sp }
             self.recordedLines = rec
             self.fieldMagnitude = fmag; self.filteredMagnitude = dbg.filt; self.hardIronMagnitude = dbg.hm
-            self.autoZeroCount = dbg.az; self.phaseName = dbg.ph
+            self.autoZeroCount = dbg.az; self.humLevel = dbg.hl; self.phaseName = dbg.ph
             if self.calibrating {
                 guard ep == self.wantedEpoch else { return }
                 self.calibrationProgress = snap.prog; self.calibrationTooNoisy = snap.noisy
