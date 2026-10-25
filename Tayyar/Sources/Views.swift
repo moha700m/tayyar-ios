@@ -8,8 +8,8 @@ struct OnboardingView: View {
         NavigationStack {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Image(systemName: "bolt.trianglebadge.exclamationmark.fill")
-                    .font(.system(size: 64)).foregroundStyle(Theme.amber)
+                Image("Logo").resizable().frame(width: 96, height: 96)
+                    .clipShape(.rect(cornerRadius: 22)).accessibilityHidden(true)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
                 Text("تيّار").font(.largeTitle.bold()).frame(maxWidth: .infinity)
