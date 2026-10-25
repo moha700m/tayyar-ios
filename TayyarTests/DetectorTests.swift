@@ -138,12 +138,9 @@ final class DetectorTests: XCTestCase {
         let s = Sim(); s.calibrate()
         let t0 = s.t
         s.run(8, rot: 0.3, dc: { $0 >= t0 ? 30 : 0 })
-        XCTAssertLessThan(s.core.score, 0.1); XCTAssertTrue(s.core.needsRecalibration)
+        XCTAssertLessThan(s.core.score, 0.1); XCTAssertGreaterThan(s.core.autoZeroCount, 0)
     }
 
-    func testEveryVoiceCueHasArabicText() {
-        for c in VoiceCue.allCases { XCTAssertFalse(c.text.isEmpty, "\(c)"); XCTAssertNotNil(c.text.range(of: "\\p{Arabic}", options: .regularExpression)) }
-    }
     func testHistoryRoundTripAndCap() {
         let d = UserDefaults(suiteName: "tayyar-test")!; ScanHistory.clear(d)
         for i in 0..<210 { ScanHistory.add(ScanRecord(date: Date(), kind: i % 2 == 0 ? "metal" : "wire", peak: i % 100), d) }

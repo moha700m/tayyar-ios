@@ -43,7 +43,7 @@ final class FeedbackController {
     }
 
     func start() {
-        VoiceGuide.configureSession()
+        AudioSession.configure()
         if !engine.isRunning { try? engine.start() }
         haptic.prepare()
     }

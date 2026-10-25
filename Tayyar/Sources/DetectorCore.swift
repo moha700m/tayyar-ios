@@ -25,7 +25,9 @@ public final class DetectorCore {
         public var humDwell = 1.0            // s continuously high before "likely"
         public var humRelease = 0.1         // s low (short window) before clearing
         public var humShortN = 48            // short window used only for fast release
-        public var offsetStuck = 4.0         // s of flat, unchanging deviation → treat as sensor offset shift
+        public var holdLimit = 6.0           // s: any deviation held this long is re-zeroed (offset shift, not an object)
+        public var staleField = 0.3          // s without field samples → metal channel decays to 0 (never freezes)
+        public var sensitivity = 1.0         // 0.6 low … 1.0 normal … 1.6 high (scales deadband and full scale)
         public var mainsHz = 60.0
         public init() {}
     }
@@ -44,6 +46,9 @@ public final class DetectorCore {
     public private(set) var needsRecalibration = false
     public private(set) var suppressedByMotion = false
     public private(set) var spectrum: [(Double, Double)] = []
+    public private(set) var autoZeroCount = 0
+    public private(set) var filtered = 0.0           // median+EMA field magnitude used for metal (µT)
+    public private(set) var hardIron = (x: 0.0, y: 0.0, z: 0.0)
     public var score: Double { max(humScore, metalScore) }
 
     private var startT: Double?
@@ -55,7 +60,7 @@ public final class DetectorCore {
     private var lastFieldT: Double?
     private var metalAboveSince: Double?
     private var driftAccum = 0.0
-    private var flatSince: Double?, flatRef = 0.0
+    private var holdSince: Double?
     private var shortPeak = 0.0
     private var bx: [Double] = [], by: [Double] = [], bz: [Double] = [], ts: [Double] = []
     private var hop = 0
@@ -65,7 +70,10 @@ public final class DetectorCore {
 
     public init(_ cfg: Config = Config()) { self.cfg = cfg }
 
-    public func startCalibration() {
+    /// `hardIron`: offset subtracted from raw samples fed through `ingestMag` (frozen for the session,
+    /// so iOS compass recalibration can never shift our baseline).
+    public func startCalibration(hardIron h: (x: Double, y: Double, z: Double) = (0, 0, 0)) {
+        hardIron = h; autoZeroCount = 0
         phase = .warmup; startT = nil; calBuf = []; calStart = nil; bestCal = nil
         baseline = nil; calSNRs = []; calibrationProgress = 0; calibrationTooNoisy = false
         needsRecalibration = false; driftAccum = 0
@@ -73,12 +81,24 @@ public final class DetectorCore {
     }
     private func resetOutputs() {
         metalScore = 0; humScore = 0; metalLikely = false; humLikely = false; deviation = 0
-        med = []; ema = nil; metalAboveSince = nil; humAboveSince = nil; humBelowSince = nil
+        med = []; ema = nil; lastFieldT = nil; holdSince = nil; metalAboveSince = nil; humAboveSince = nil; humBelowSince = nil
     }
 
     public static func alias(_ f: Double, fs: Double) -> Double {
         guard fs > 0 else { return 0 }
         return abs(f - fs * (f / fs).rounded())
+    }
+
+    /// Re-zero on the current reading (tare), like a hardware detector's zero button.
+    public func zero() {
+        guard phase == .ready, let e = ema else { return }
+        baseline = e; resetOutputs()
+    }
+
+    /// Single raw-magnetometer stream → both channels. Metal uses raw − frozen hard-iron offset.
+    public func ingestMag(t: Double, x: Double, y: Double, z: Double, gyro: Double) {
+        ingestRaw(t: t, x: x, y: y, z: z)
+        ingestField(t: t, x: x - hardIron.x, y: y - hardIron.y, z: z - hardIron.z, gyro: gyro)
     }
 
     // MARK: metal / DC channel
@@ -119,22 +139,25 @@ public final class DetectorCore {
         let a = 1 - exp(-dt / cfg.metalTau)
         ema = ema.map { $0 + a * (mm - $0) } ?? mm
         deviation = abs(ema! - b)
-        let dead = max(cfg.metalDeadbandMin, cfg.metalDeadbandSigma * baselineStd)
-        var raw = max(0, min(1, (deviation - dead) / cfg.metalFullScale))
+        filtered = ema!
+        let sens = max(0.3, cfg.sensitivity)
+        let dead = max(cfg.metalDeadbandMin, cfg.metalDeadbandSigma * baselineStd) / sens
+        var raw = max(0, min(1, (deviation - dead) / (cfg.metalFullScale / sens)))
         suppressedByMotion = gyro > cfg.rotationSuppress
         if suppressedByMotion { raw = min(raw, metalScore) }       // never escalate while twisting fast
         metalScore += (raw > metalScore ? 0.6 : 0.35) * (raw - metalScore)
         if raw == 0 && metalScore < 0.01 { metalScore = 0 }
-        // A real object changes as you sweep; a perfectly flat, large deviation for seconds while the
-        // phone moves is a sensor offset jump (iOS recalibrated the compass) → re-anchor the baseline.
+        // A real object is passed over in a second or two. A deviation that persists for `holdLimit`
+        // seconds — still or moving — is a sensor offset shift (strong magnet nearby, iOS compass
+        // recalibration, magnetised part), so re-zero instead of sticking at 100.
         if deviation > dead {
-            if flatSince == nil || abs(deviation - flatRef) > 1.0 { flatSince = t; flatRef = deviation }
-            else if t - flatSince! > cfg.offsetStuck && gyro > 0.15 {
-                baseline = ema; needsRecalibration = true; flatSince = nil
-                metalScore = 0; metalLikely = false; metalAboveSince = nil
+            if holdSince == nil { holdSince = t }
+            else if t - holdSince! > cfg.holdLimit {
+                baseline = ema; autoZeroCount += 1
+                holdSince = nil; metalScore = 0; metalLikely = false; metalAboveSince = nil
                 return
             }
-        } else { flatSince = nil }
+        } else { holdSince = nil }
         if metalScore > 0.35 {
             if metalAboveSince == nil { metalAboveSince = t }
             if t - metalAboveSince! >= cfg.metalDwell { metalLikely = true }
@@ -159,6 +182,11 @@ public final class DetectorCore {
     public func ingestRaw(t: Double, x: Double, y: Double, z: Double) {
         bx.append(x); by.append(y); bz.append(z); ts.append(t)
         if bx.count > cfg.humN { bx.removeFirst(); by.removeFirst(); bz.removeFirst(); ts.removeFirst() }
+        // watchdog: if the field stream stopped (e.g. iOS marked the compass uncalibrated), the metal
+        // channel must fall to zero instead of freezing at its last value
+        if phase == .ready, let lf = lastFieldT, t - lf > cfg.staleField, metalScore > 0 || metalLikely {
+            metalScore = 0; metalLikely = false; deviation = 0; med = []; ema = nil; lastFieldT = nil; metalAboveSince = nil; holdSince = nil
+        }
         hop += 1
         guard bx.count == cfg.humN, hop >= cfg.humHop else { return }
         hop = 0

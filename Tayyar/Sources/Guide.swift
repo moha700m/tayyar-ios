@@ -168,7 +168,7 @@ enum ScanStatus: CaseIterable {
         switch self { case .safe: "circle.dashed"; case .caution: "exclamationmark.triangle.fill"; case .danger: "bolt.trianglebadge.exclamationmark.fill" }
     }
     var color: Color {
-        switch self { case .safe: .green; case .caution: Theme.amber; case .danger: .red }
+        switch self { case .safe: Theme.ok; case .caution: Theme.amber; case .danger: Theme.danger }
     }
 }
 
@@ -271,157 +271,205 @@ enum SensorInfo {
     }
 }
 
-/// Guided wizard: the app highlights one spot at a time, detects the key automatically, then shows the result.
+/// Sensor-location test v2: 3×5 grid, per-cell robust peak delta vs a reference with repeated samples,
+/// refinement of the top cells, confidence score with automatic retries, sub-cell centroid and a
+/// plausibility check against the MagSafe-area expectation. Pure maths lives in `LocatorCore`.
 struct SensorFinderView: View {
     @Environment(SensorEngine.self) private var engine
-    @Environment(\.dismiss) private var dismiss
     @AppStorage("sensorX") private var sx = 0.5
     @AppStorage("sensorY") private var sy = 0.45
-    enum Step { case intro, reference, cell, lift, result }
+    @AppStorage("sensorConfidence") private var savedConf = 0.0
+    enum Step { case intro, reference, place, settle, lift, result }
     @State private var step: Step = .intro
-    @State private var cell = 0
+    @State private var core = LocatorCore()
+    @State private var queue: [Int] = []
+    @State private var done = 0
+    @State private var planned = 18
+    @State private var round = 0          // 0 coarse, 1 refine, 2+ retries
     @State private var ref = 0.0
-    @State private var refSamples: [Double] = []
-    @State private var peaks: [Double] = Array(repeating: 0, count: 6)
-    @State private var cellStart = Date()
-    @State private var aboveSince: Date?
+    @State private var buf: [Double] = []
+    @State private var stepStart = Date()
+    @State private var overSince: Date?
+    @State private var result: LocatorCore.Result?
     @State private var saved = false
-    private let cols = 2, rows = 3
-    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
-
-    private func center(_ i: Int) -> CGPoint { CGPoint(x: (Double(i % cols) + 0.5) / Double(cols), y: 0.12 + (Double(i / cols) + 0.5) / Double(rows) * 0.8) }
+    private let timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+    private var cell: Int { queue.first ?? 0 }
     private var live: Double { abs(engine.currentMagnitude - ref) }
-    private var best: Int { peaks.indices.max { peaks[$0] < peaks[$1] } ?? 2 }
-    private var progress: Double {
-        switch step { case .intro, .reference: 0; case .cell, .lift: Double(cell) / 6; case .result: 1 }
-    }
+    private var thr: Double { max(1.5, 4 * core.noise) }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 22) {
-                if step != .intro { ProgressView(value: progress).scaleEffect(y: 2.5).tint(Theme.amber) }
+            VStack(spacing: 20) {
+                if step != .intro {
+                    ProgressView(value: Double(min(done, planned)), total: Double(planned)).tint(Theme.amber)
+                        .accessibilityLabel("التقدم \(done) من \(planned)")
+                }
                 switch step {
                 case .intro: intro
                 case .reference:
-                    big("خل الجوال على الطاولة وشيل المفتاح بعيد")
-                    ProgressView().scaleEffect(2).padding()
-                    small("ثانيتين بس…")
-                case .cell, .lift:
-                    big(step == .cell ? "حط المفتاح هنا" : "ممتاز، شيل المفتاح")
-                    phone(highlight: cell, arrow: step == .cell)
-                    small(step == .cell ? "على ظهر الجوال، مكان الدائرة الصفرا بالضبط. انتظر شوي" : "ارفع المفتاح عن الجوال")
-                    Text("المكان \(cell + 1) من ٦").font(.title3.bold())
+                    title("خل الجوال على الطاولة بدون المفتاح")
+                    ProgressView().controlSize(.large).padding()
+                    caption("نقيس الهدوء ثانيتين…")
+                case .place, .settle, .lift:
+                    title(step == .lift ? "شيل المفتاح" : (step == .settle ? "ثبّته…" : "حط المفتاح هنا"))
+                    caption(round == 0 ? "المسح \(done + 1) من ١٥" : (round == 1 ? "تأكيد أقوى الأماكن" : "إعادة الأماكن المتقاربة"))
+                    grid(active: cell, values: nil)
+                    HStack(spacing: 8) {
+                        Text("التغير").foregroundStyle(Theme.secondary)
+                        Text(String(format: "%.1f µT", live)).font(Theme.mono(18)).foregroundStyle(live > thr ? Theme.amber : Theme.text)
+                            .environment(\.layoutDirection, .leftToRight)
+                    }.accessibilityElement(children: .combine)
                 case .result:
-                    big("لقينا مكان الحساس")
-                    phone(highlight: best, arrow: false, found: true)
-                    small(peaks[best] > 3 ? "هذا المكان هو اللي تمرره على الجدار وقت الفحص" : "ما بان فرق واضح، جرّب مفتاح أو مفك حديد أكبر")
-                    Button {
-                        let c = center(best); sx = c.x; sy = c.y; saved = true
-                    } label: { Text(saved ? "تم الحفظ ✓" : "احفظ").font(.title.bold()).frame(maxWidth: .infinity, minHeight: 64) }
-                        .buttonStyle(.borderedProminent).disabled(saved)
-                    Button("أعد من البداية") { restart() }.font(.title3).buttonStyle(.bordered)
+                    if let r = result { resultView(r) }
                 }
             }
-            .padding()
+            .padding(20)
         }
         .background(Theme.bg)
         .navigationTitle("مكان الحساس")
         .onAppear { engine.start() }
         .onReceive(timer) { _ in tick() }
-        .onAppear { VoiceGuide.shared.say(.finderIntro) }
-        .onChange(of: step) { _, st in
-            switch st {
-            case .cell: VoiceGuide.shared.say(.finderPlace, minGap: 1)
-            case .lift: VoiceGuide.shared.say(.finderNext, minGap: 1)
-            case .result: VoiceGuide.shared.say(peaks[best] > 3 ? .finderDone : .finderProblem, minGap: 1)
-            default: break
-            }
-        }
+        .sensoryFeedback(.selection, trigger: done)
+        .sensoryFeedback(.success, trigger: step == .result)
     }
 
     private var intro: some View {
-        VStack(spacing: 22) {
-            HStack(spacing: 24) {
-                Image(systemName: "iphone.gen3").font(.system(size: 90)).rotationEffect(.degrees(180)).foregroundStyle(.white)
-                Image(systemName: "key.fill").font(.system(size: 64)).foregroundStyle(Theme.amber)
-            }.padding(.top, 10).accessibilityHidden(true)
-            big("نلقى مكان الحساس في جوالك")
-            VStack(alignment: .leading, spacing: 16) {
-                bullet(1, "اقلب الجوال على وجهه فوق طاولة")
-                bullet(2, "امسك مفتاح حديد بيدك")
-                bullet(3, "حط المفتاح وين ما نقول لك، والتطبيق يكمّل لحاله")
+        VStack(spacing: 20) {
+            grid(active: nil, values: nil).frame(height: 300).accessibilityHidden(true)
+            title("نحدد مكان الحساس بدقة")
+            VStack(alignment: .leading, spacing: 14) {
+                bullet(1, "اقلب الجوال على وجهه فوق طاولة خشب، وشيل الكفر")
+                bullet(2, "امسك مفتاح حديد أو مغناطيس ثلاجة صغير")
+                bullet(3, "حطه على كل مربع ينوّر، والتطبيق يقيس ويكمّل لحاله (١٥ مربع + تأكيد)")
             }
-            Button { restart() } label: { Text("ابدأ").font(.title.bold()).frame(maxWidth: .infinity, minHeight: 64) }
-                .buttonStyle(.borderedProminent)
+            Button { restart() } label: { Text("ابدأ") }.buttonStyle(PrimaryButtonStyle())
         }
     }
 
-    private func phone(highlight: Int, arrow: Bool, found: Bool = false) -> some View {
+    private func resultView(_ r: LocatorCore.Result) -> some View {
+        VStack(spacing: 18) {
+            title(r.confidence >= 0.55 ? "لقينا مكان الحساس" : "النتيجة غير أكيدة")
+            grid(active: nil, values: (0..<core.count).map { core.value($0) }, marker: (r.x, r.y))
+            HStack(spacing: 12) {
+                stat("الثقة", "\(Int(r.confidence * 100))%", r.confidence >= 0.55 ? Theme.ok : Theme.amber)
+                stat("أقوى تغير", String(format: "%.1f µT", r.signal), Theme.text)
+            }
+            Panel {
+                Label(r.plausible ? "يطابق المتوقع: في الآيفونات الحديثة الحساس على شريحة الشحن اللاسلكي (MagSafe) قرب نص الظهر"
+                                  : "مكان غير متوقع. في أغلب الآيفونات الحديثة الحساس قرب نص الظهر. أعد الاختبار بمغناطيس صغير وبدون كفر",
+                      systemImage: r.plausible ? "checkmark.seal" : "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(r.plausible ? Theme.text : Theme.amber).fixedSize(horizontal: false, vertical: true)
+            }
+            Button { sx = r.x; sy = r.y; savedConf = r.confidence; saved = true } label: { Text(saved ? "تم الحفظ ✓" : "احفظ المكان") }
+                .buttonStyle(PrimaryButtonStyle()).disabled(saved)
+            Button { restart() } label: { Text("أعد الاختبار") }.buttonStyle(SecondaryButtonStyle())
+        }
+    }
+
+    /// Back of the phone with a dashed 3×5 grid; optional heat-map values and result marker.
+    private func grid(active: Int?, values: [Double]?, marker: (Double, Double)? = nil) -> some View {
         GeometryReader { g in
-            let w = g.size.width, h = g.size.height, c = center(highlight)
+            let w = g.size.width, h = g.size.height, mx = values?.max() ?? 0
             ZStack {
-                RoundedRectangle(cornerRadius: w * 0.16).fill(Color(white: 0.22))
-                RoundedRectangle(cornerRadius: w * 0.16).stroke(.white.opacity(0.4), lineWidth: 2)
-                RoundedRectangle(cornerRadius: w * 0.08).fill(Color(white: 0.08)).frame(width: w * 0.38, height: w * 0.38)
-                    .position(x: w * 0.26, y: w * 0.26)
-                ForEach(0..<6, id: \.self) { i in
-                    let p = center(i)
-                    Circle().stroke(.white.opacity(0.25), lineWidth: 2).frame(width: w * 0.22).position(x: w * p.x, y: h * p.y)
+                RoundedRectangle(cornerRadius: w * 0.14).fill(Theme.surface)
+                RoundedRectangle(cornerRadius: w * 0.14).stroke(Theme.stroke, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: w * 0.07).fill(Color.black).frame(width: w * 0.36, height: w * 0.36)
+                    .position(x: w * 0.24, y: w * 0.24)
+                Circle().stroke(Theme.stroke, style: StrokeStyle(lineWidth: 1, dash: [3, 4])).frame(width: w * 0.62)
+                    .position(x: w * 0.5, y: h * 0.52)   // MagSafe ring (expected area)
+                ForEach(0..<core.count, id: \.self) { i in
+                    let p = core.center(i), cw = w / CGFloat(core.cols) * 0.8, ch = h * 0.82 / CGFloat(core.rows) * 0.8
+                    let v = values.map { mx > 0 ? $0[i] / mx : 0 } ?? 0
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(i == active ? Theme.amber : Theme.amber.opacity(values == nil ? 0 : 0.08 + 0.8 * v))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(i == active ? Theme.amber : Theme.secondary.opacity(0.45), style: StrokeStyle(lineWidth: 1.2, dash: i == active ? [] : [4, 4])))
+                        .overlay { if i == active { Image(systemName: "key.fill").foregroundStyle(.black).font(.system(size: cw * 0.35, weight: .bold)) } }
+                        .frame(width: cw, height: ch)
+                        .position(x: w * p.x, y: h * p.y)
                 }
-                Circle().fill(found ? Color.green : Theme.amber).frame(width: w * 0.3)
-                    .overlay(Image(systemName: found ? "checkmark" : "key.fill").font(.system(size: w * 0.12, weight: .bold)).foregroundStyle(.black))
-                    .position(x: w * c.x, y: h * c.y)
-                if arrow {
-                    Image(systemName: "arrow.down").font(.system(size: w * 0.18, weight: .heavy)).foregroundStyle(Theme.amber)
-                        .position(x: w * c.x, y: h * c.y - w * 0.3)
+                if let m = marker {
+                    Circle().stroke(Theme.ok, lineWidth: 3).frame(width: w * 0.16)
+                        .overlay(Circle().fill(Theme.ok).frame(width: 8))
+                        .position(x: w * m.0, y: h * m.1)
                 }
             }
             .environment(\.layoutDirection, .leftToRight)
         }
         .aspectRatio(0.49, contentMode: .fit)
-        .frame(height: 360)
-        .animation(.easeInOut, value: highlight)
-        .accessibilityLabel("رسمة ظهر الجوال، المكان المحدد \(highlight + 1)")
+        .frame(maxHeight: 380)
+        .animation(.easeInOut(duration: 0.2), value: active)
+        .accessibilityElement()
+        .accessibilityLabel(active.map { "ظهر الجوال، المربع \($0 + 1) من ١٥ منوّر" } ?? "ظهر الجوال مع خريطة القراءات")
     }
 
-    private func big(_ t: String) -> some View { Text(t).font(.largeTitle.bold()).multilineTextAlignment(.center).frame(maxWidth: .infinity) }
-    private func small(_ t: String) -> some View { Text(t).font(.title3).multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true) }
+    private func stat(_ k: String, _ v: String, _ c: Color) -> some View {
+        Panel(padding: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(k).font(.caption).foregroundStyle(Theme.secondary)
+                Text(v).font(Theme.mono(22)).foregroundStyle(c).environment(\.layoutDirection, .leftToRight)
+            }
+        }.accessibilityElement(children: .combine)
+    }
+    private func title(_ t: String) -> some View { Text(t).font(.title.bold()).foregroundStyle(Theme.text).multilineTextAlignment(.center).frame(maxWidth: .infinity) }
+    private func caption(_ t: String) -> some View { Text(t).font(.callout).foregroundStyle(Theme.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity) }
     private func bullet(_ n: Int, _ t: String) -> some View {
-        HStack(spacing: 14) {
-            Text("\(n)").font(.title.bold()).foregroundStyle(.black).frame(width: 48, height: 48).background(Theme.amber, in: .circle)
-            Text(t).font(.title2).fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(n)").font(Theme.mono(17, .bold)).foregroundStyle(.black).frame(width: 32, height: 32).background(Theme.amber, in: .circle)
+            Text(t).font(.body).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func restart() {
-        peaks = Array(repeating: 0, count: 6); cell = 0; refSamples = []; saved = false
-        step = .reference; cellStart = Date()
+        core = LocatorCore(); queue = Array(0..<core.count); done = 0; planned = core.count + 3; round = 0
+        buf = []; saved = false; result = nil; step = .reference; stepStart = Date()
     }
 
     private func tick() {
         let m = engine.currentMagnitude
         guard m > 0 else { return }
-        let now = Date()
+        let now = Date(), el = now.timeIntervalSince(stepStart)
         switch step {
         case .intro, .result: break
         case .reference:
-            refSamples.append(m)
-            if now.timeIntervalSince(cellStart) > 2 {
-                ref = refSamples.sorted()[refSamples.count / 2]
-                step = .cell; cellStart = now; aboveSince = nil
+            buf.append(m)
+            if el > 2, buf.count > 10 {
+                let s = buf.sorted(); ref = s[s.count / 2]
+                let mean = buf.reduce(0, +) / Double(buf.count)
+                core.noise = max(0.1, (buf.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(buf.count)).squareRoot())
+                go(.place)
             }
-        case .cell:
-            peaks[cell] = max(peaks[cell], live)
-            if live > 4 { aboveSince = aboveSince ?? now } else { aboveSince = nil }
-            let gotIt = aboveSince.map { now.timeIntervalSince($0) > 1.2 } ?? false
-            let timeout = now.timeIntervalSince(cellStart) > 5   // far from sensor: little change, move on
-            if gotIt || timeout { step = gotIt ? .lift : .cell; if !gotIt { next(now) } else { cellStart = now } }
+        case .place:
+            buf.append(m)
+            if live > thr { overSince = overSince ?? now } else { overSince = nil }
+            if let o = overSince, now.timeIntervalSince(o) > 0.3 { go(.settle) }
+            else if el > 6 { record(LocatorCore.peakDelta(buf, reference: ref, noise: core.noise), needsLift: false) }  // nothing here
+        case .settle:
+            buf.append(m)
+            if el > 1.0 { record(LocatorCore.peakDelta(buf, reference: ref, noise: core.noise), needsLift: true) }
         case .lift:
-            if live < 2 || now.timeIntervalSince(cellStart) > 4 { next(now) }
+            buf.append(m)
+            if live < thr { overSince = overSince ?? now } else { overSince = nil }
+            if let o = overSince, now.timeIntervalSince(o) > 0.3 {
+                let s = buf.suffix(6).sorted(); ref = 0.8 * ref + 0.2 * s[s.count / 2]   // follow slow drift
+                advance()
+            } else if el > 4 { advance() }
         }
     }
-    private func next(_ now: Date) {
-        if cell >= 5 { step = .result; return }
-        cell += 1; step = .cell; cellStart = now; aboveSince = nil
+    private func go(_ s: Step) { step = s; stepStart = Date(); buf = []; overSince = nil }
+    private func record(_ d: Double, needsLift: Bool) {
+        core.add(cell: cell, delta: d); done += 1
+        if needsLift { go(.lift) } else { advance() }
+    }
+    private func advance() {
+        if !queue.isEmpty { queue.removeFirst() }
+        if queue.isEmpty {
+            if round == 0 { queue = Array(core.ranked.prefix(3)); round = 1 }
+            else {
+                let r = core.result()
+                if !r.retry.isEmpty && round < 3 { queue = r.retry; planned += r.retry.count; round += 1 }
+                else { result = r; go(.result); return }
+            }
+        }
+        go(.place)
     }
 }

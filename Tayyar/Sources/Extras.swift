@@ -1,4 +1,42 @@
 import SwiftUI
+import AVFoundation
+
+enum AudioSession {
+    /// Playback only, mixes with other audio; the app never records.
+    static func configure() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
+    }
+}
+
+/// Local scan history (UserDefaults JSON, on device only).
+struct ScanRecord: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var date: Date
+    var kind: String      // "metal" | "wire"
+    var peak: Int         // 0–100
+}
+
+enum ScanHistory {
+    static let key = "scanHistory"
+    static func load(_ d: UserDefaults = .standard) -> [ScanRecord] {
+        guard let data = d.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([ScanRecord].self, from: data)) ?? []
+    }
+    static func add(_ r: ScanRecord, _ d: UserDefaults = .standard) {
+        var all = load(d); all.insert(r, at: 0); if all.count > 200 { all.removeLast(all.count - 200) }
+        d.set(try? JSONEncoder().encode(all), forKey: key)
+    }
+    static func clear(_ d: UserDefaults = .standard) { d.removeObject(forKey: key) }
+}
+
+/// Geiger-style click interval: no clicks when quiet, ~2/s at low signal up to ~16/s at full scale.
+enum Geiger {
+    static func interval(score: Double) -> Double? {
+        guard score > 0.08 else { return nil }
+        return 1 / (2 + 14 * min(1, score))
+    }
+}
 
 struct HistoryView: View {
     @State private var items = ScanHistory.load()
@@ -35,7 +73,7 @@ struct LevelView: View {
             ZStack {
                 Circle().stroke(.white.opacity(0.3), lineWidth: 3).frame(width: 260)
                 Circle().stroke(.white.opacity(0.3), lineWidth: 1).frame(width: 50)
-                Circle().fill(flatOK ? .green : Theme.amber).frame(width: 44)
+                Circle().fill(flatOK ? Theme.ok : Theme.amber).frame(width: 44)
                     .offset(x: CGFloat(max(-110, min(110, -roll * 6))), y: CGFloat(max(-110, min(110, pitch * 6))))
                     .animation(.linear(duration: 0.05), value: roll)
             }

@@ -5,7 +5,13 @@ import Observation
 struct SpectrumPoint: Identifiable { let id: Int; let freq: Double; let power: Double }
 struct SamplePoint: Identifiable { let id: Int; let value: Double }
 
-/// v3 signal chain — CoreMotion wrapper around the pure, unit-tested `DetectorCore`.
+/// v4 signal chain. ONE stream: raw magnetometer (CMMagnetometerData) minus a hard-iron offset that is
+/// frozen at calibration (taken from iOS's estimate once, then never changes). deviceMotion is used only
+/// for gyro/gravity. v3 fed the metal channel from deviceMotion.magneticField, which (a) stops when iOS
+/// marks the compass uncalibrated near a strong magnet → score froze at 100, and (b) jumps when iOS
+/// re-estimates its offset → a permanent deviation that the old "flat + moving" re-anchor never caught.
+///
+/// v3 signal chain (history) — CoreMotion wrapper around the pure, unit-tested `DetectorCore`.
 /// Metal (DC) channel: ONE consistent source, locked per calibration — hard-iron-corrected
 ///   deviceMotion.magneticField when iOS has calibrated it, else raw magnitude. (v2 mixed the two,
 ///   so the baseline and the live value came from different sources → instant false "strong".)
@@ -48,7 +54,16 @@ final class SensorEngine {
     var humLikely = false
     var metalLikely = false
     var score: Double { max(humScore, magScore) }
-    var currentMagnitude: Double { calibratedMagnitude > 0 ? calibratedMagnitude : rawMagnitude }
+    var currentMagnitude: Double { fieldMagnitude }
+    // live debug (Test tab)
+    var fieldMagnitude: Double = 0      // |raw − frozen hard-iron| µT
+    var filteredMagnitude: Double = 0   // after median + EMA
+    var hardIronMagnitude: Double = 0
+    var autoZeroCount = 0
+    var phaseName = "—"
+    var sensitivity: Double = UserDefaults.standard.object(forKey: "sensitivity") as? Double ?? 1.0 {
+        didSet { UserDefaults.standard.set(sensitivity, forKey: "sensitivity"); let v = sensitivity; queue.addOperation { self.core.cfg.sensitivity = v } }
+    }
 
     var bandLow: Double = 35
     var bandHigh: Double = 45
@@ -75,6 +90,7 @@ final class SensorEngine {
     @ObservationIgnored private var lastCalMag = 0.0
     @ObservationIgnored private var acc = "—"
     @ObservationIgnored private var askedUpgrade = false
+    @ObservationIgnored private var hEst: (x: Double, y: Double, z: Double)?
     @ObservationIgnored private var epoch = 0          // queue side
     @ObservationIgnored private var wantedEpoch = 0    // main side
 
@@ -87,9 +103,8 @@ final class SensorEngine {
             guard let self, let d else { return }
             let f = d.magneticField
             self.lastRaw = (f.x, f.y, f.z)
-            self.core.ingestRaw(t: d.timestamp, x: f.x, y: f.y, z: f.z)
+            self.core.ingestMag(t: d.timestamp, x: f.x, y: f.y, z: f.z, gyro: self.lastGyro)
             self.rawTimes.append(d.timestamp); if self.rawTimes.count > 120 { self.rawTimes.removeFirst() }
-            if !self.useCal { self.core.ingestField(t: d.timestamp, x: f.x, y: f.y, z: f.z, gyro: self.lastGyro) }
             self.record("r", d.timestamp, f.x, f.y, f.z)
             self.tick(d.timestamp)
         }
@@ -119,7 +134,10 @@ final class SensorEngine {
                 }
                 if self.latestCalOK {
                     self.lastCalMag = (f.x * f.x + f.y * f.y + f.z * f.z).squareRoot()
-                    if self.useCal { self.core.ingestField(t: m.timestamp, x: f.x, y: f.y, z: f.z, gyro: self.lastGyro) }
+                    // running estimate of iOS's hard-iron offset (raw − corrected); only READ at calibration
+                    let r = self.lastRaw, k = self.hEst == nil ? 1.0 : 0.05
+                    let d = (x: r.x - f.x, y: r.y - f.y, z: r.z - f.z), o = self.hEst ?? d
+                    self.hEst = (o.x + k * (d.x - o.x), o.y + k * (d.y - o.y), o.z + k * (d.z - o.z))
                 }
                 self.record("c", m.timestamp, f.x, f.y, f.z, self.lastGyro)
             }
@@ -135,9 +153,10 @@ final class SensorEngine {
         queue.addOperation {
             self.epoch = e
             // lock ONE source for baseline and live values
-            self.useCal = self.manager.isDeviceMotionAvailable && self.latestCalOK
+            self.useCal = self.latestCalOK && self.hEst != nil
             self.askedUpgrade = false
-            self.core.startCalibration()
+            self.core.cfg.sensitivity = UserDefaults.standard.object(forKey: "sensitivity") as? Double ?? 1.0
+            self.core.startCalibration(hardIron: self.useCal ? self.hEst! : (0, 0, 0))
         }
     }
 
@@ -145,6 +164,9 @@ final class SensorEngine {
         humScore = 0; magScore = 0; humLikely = false; metalLikely = false
         beginCalibration()
     }
+
+    /// Tare on the current reading.
+    func zero() { queue.addOperation { self.core.zero() } }
 
     static func alias(_ f: Double, fs: Double) -> Double { DetectorCore.alias(f, fs: fs) }
 
@@ -179,9 +201,12 @@ final class SensorEngine {
 
     private func tick(_ t: Double) {
         let mag = (lastRaw.x * lastRaw.x + lastRaw.y * lastRaw.y + lastRaw.z * lastRaw.z).squareRoot()
+        let hi = core.hardIron
+        let fx = lastRaw.x - hi.x, fy = lastRaw.y - hi.y, fz = lastRaw.z - hi.z
+        let fmag = (fx * fx + fy * fy + fz * fz).squareRoot()
         histCounter += 1
         if histCounter % 2 == 0 {
-            histBuf.append(SamplePoint(id: histCounter, value: useCal && lastCalMag > 0 ? lastCalMag : mag))
+            histBuf.append(SamplePoint(id: histCounter, value: fmag))
             if histBuf.count > 250 { histBuf.removeFirst(histBuf.count - 250) }
         }
         guard t - lastPublish >= 0.025 else { return }   // ~40 Hz UI
@@ -193,11 +218,15 @@ final class SensorEngine {
         let sp = c.spectrum.enumerated().map { SpectrumPoint(id: $0.offset, freq: $0.element.0, power: $0.element.1) }
         let rr = rate(rawTimes), mr = rate(motionTimes), raw = lastRaw, cal = lastCalMag, a = acc, h = histBuf, uc = useCal
         let rec = trace.count, ep = epoch
+        let dbg = (filt: c.filtered, hm: (hi.x * hi.x + hi.y * hi.y + hi.z * hi.z).squareRoot(), az: c.autoZeroCount,
+                   ph: { switch c.phase { case .idle: "idle"; case .warmup: "warmup"; case .calibrating: "calibrating"; case .ready: "ready" } }())
         DispatchQueue.main.async {
             self.rawRate = rr; self.motionRate = mr; self.rawField = raw; self.rawMagnitude = mag
             self.calibratedMagnitude = cal; self.calibrationAccuracy = a; self.history = h; self.usingCalibratedField = uc
             if !sp.isEmpty { self.spectrum = sp }
             self.recordedLines = rec
+            self.fieldMagnitude = fmag; self.filteredMagnitude = dbg.filt; self.hardIronMagnitude = dbg.hm
+            self.autoZeroCount = dbg.az; self.phaseName = dbg.ph
             if self.calibrating {
                 guard ep == self.wantedEpoch else { return }
                 self.calibrationProgress = snap.prog; self.calibrationTooNoisy = snap.noisy
