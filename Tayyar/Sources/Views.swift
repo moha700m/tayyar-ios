@@ -60,7 +60,7 @@ struct GaugeView: View {
                 .shadow(color: Theme.level(score).opacity(0.35), radius: 10)
                 .animation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.85), value: score)
             VStack(spacing: 6) {
-                Text("\(Int((score * 100).rounded()))").font(Theme.mono(78, .bold)).monospacedDigit()
+                Text(verbatim: "\(Int((score * 100).rounded()))").font(Theme.mono(78, .bold)).monospacedDigit()
                     .foregroundStyle(Theme.level(score)).contentTransition(.numericText())
                 Text(label).font(.headline).foregroundStyle(Theme.text).multilineTextAlignment(.center).padding(.horizontal, 48)
             }
@@ -111,7 +111,7 @@ struct ScanView: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("أعلى قراءة").font(.caption).foregroundStyle(Theme.secondary)
-                                        Text("\(Int(sessionPeak * 100))").font(Theme.mono(22)).foregroundStyle(Theme.level(sessionPeak))
+                                        Text(verbatim: "\(Int(sessionPeak * 100))").font(Theme.mono(22)).foregroundStyle(Theme.level(sessionPeak))
                                     }
                                     Spacer()
                                     Button { sessionPeak = 0 } label: { Image(systemName: "arrow.counterclockwise").frame(width: 44, height: 44) }
@@ -279,7 +279,7 @@ struct CalibrateView: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.easeOut(duration: 0.2), value: engine.calibrationProgress)
                 VStack(spacing: 4) {
-                    Text("\(Int(engine.calibrationProgress * 100))%").font(Theme.mono(40, .bold)).foregroundStyle(Theme.text)
+                    Text(verbatim: "\(Int(engine.calibrationProgress * 100))%").font(Theme.mono(40, .bold)).foregroundStyle(Theme.text)
                     Text("١ متر عن الجدار").font(.caption).foregroundStyle(Theme.secondary)
                 }
             }
@@ -351,7 +351,7 @@ struct TestModeView: View {
                         if let url = traceURL { ShareLink("صدّر CSV", item: url).buttonStyle(.borderedProminent) }
                         else { Button("جهّز الملف") { traceURL = engine.exportTrace() }.buttonStyle(.borderedProminent) }
                     }
-                }.padding(8).font(.footnote).foregroundStyle(.black)
+                }.padding(8).font(.footnote).tint(Theme.amber)
             }
             .navigationTitle("وضع التجربة")
             .onAppear { engine.start() }

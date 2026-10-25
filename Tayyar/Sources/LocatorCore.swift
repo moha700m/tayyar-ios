@@ -18,10 +18,10 @@ public struct LocatorCore {
     public var count: Int { cols * rows }
 
     /// Normalised centre of a cell (x: 0 left … 1 right looking at the back, y: 0 top … 1 bottom).
-    /// Top 12 % is the camera bump; cells span the rest.
+    /// Top ~22 % is the camera bump; cells span the rest.
     public func center(_ i: Int) -> (x: Double, y: Double) {
         let c = i % cols, r = i / cols
-        return ((Double(c) + 0.5) / Double(cols), 0.14 + (Double(r) + 0.5) / Double(rows) * 0.82)
+        return ((Double(c) + 0.5) / Double(cols), 0.22 + (Double(r) + 0.5) / Double(rows) * 0.74)
     }
 
     /// Robust per-placement peak: 80th percentile of |sample − reference|, minus noise floor.

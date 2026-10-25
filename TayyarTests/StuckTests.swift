@@ -78,10 +78,10 @@ final class LocatorTests: XCTestCase {
     }
     func testFindsMidBackSensorWithConfidence() {
         var l = LocatorCore(noise: 0.3); var rng = RNG(s: 3)
-        for rep in 0..<2 { for i in 0..<l.count where rep == 0 || l.ranked.prefix(3).contains(i) { l.add(cell: i, delta: field(l, i, sx: 0.5, sy: 0.52, rng: &rng, noise: 0.4)) } }
+        for rep in 0..<2 { for i in 0..<l.count where rep == 0 || l.ranked.prefix(3).contains(i) { l.add(cell: i, delta: field(l, i, sx: 0.5, sy: 0.58, rng: &rng, noise: 0.4)) } }
         let r = l.result()
         XCTAssertEqual(r.cell, 7)                                   // centre column, middle row
-        XCTAssertEqual(r.x, 0.5, accuracy: 0.08); XCTAssertEqual(r.y, 0.52, accuracy: 0.1)
+        XCTAssertEqual(r.x, 0.5, accuracy: 0.08); XCTAssertEqual(r.y, 0.58, accuracy: 0.1)
         XCTAssertGreaterThan(r.confidence, 0.6); XCTAssertTrue(r.plausible); XCTAssertTrue(r.retry.isEmpty)
     }
     func testFlatResponseIsLowConfidenceAndRetries() {

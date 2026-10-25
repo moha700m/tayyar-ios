@@ -387,7 +387,7 @@ struct SensorFinderView: View {
                 Circle().stroke(Theme.stroke, style: StrokeStyle(lineWidth: 1, dash: [3, 4])).frame(width: w * 0.62)
                     .position(x: w * 0.5, y: h * 0.52)   // MagSafe ring (expected area)
                 ForEach(0..<core.count, id: \.self) { i in
-                    let p = core.center(i), cw = w / CGFloat(core.cols) * 0.8, ch = h * 0.82 / CGFloat(core.rows) * 0.8
+                    let p = core.center(i), cw = w / CGFloat(core.cols) * 0.8, ch = h * 0.74 / CGFloat(core.rows) * 0.8
                     let v = values.map { mx > 0 ? $0[i] / mx : 0 } ?? 0
                     RoundedRectangle(cornerRadius: 8)
                         .fill(i == active ? Theme.amber : Theme.amber.opacity(values == nil ? 0 : 0.08 + 0.8 * v))
