@@ -327,7 +327,16 @@ struct SensorFinderView: View {
         }
         .background(Theme.bg)
         .navigationTitle("مكان الحساس")
-        .onAppear { engine.start() }
+        .onAppear {
+            engine.start()
+            #if DEBUG
+            if UserDefaults.standard.string(forKey: "demoScreen") == "finder" {   // simulator screenshot fixture
+                var c = LocatorCore()
+                for i in 0..<c.count { let p = c.center(i), dx = (p.x - 0.52) * 7, dy = (p.y - 0.5) * 15; c.add(cell: i, delta: 120 / pow(dx * dx + dy * dy + 1, 1.5)) }
+                core = c; result = c.result(); done = 18; step = .result
+            }
+            #endif
+        }
         .onReceive(timer) { _ in tick() }
         .sensoryFeedback(.selection, trigger: done)
         .sensoryFeedback(.success, trigger: step == .result)

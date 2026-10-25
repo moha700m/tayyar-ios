@@ -10,6 +10,8 @@ struct TayyarApp: App {
             e.available = true; e.baselineMagnitude = 45; e.humMeasurable = true
             e.humScore = d; e.magScore = d * 0.7; e.magDeviation = d * 40; e.humRatio = 1 + d * 3
             e.humLikely = d > 0.6; e.metalLikely = d > 0.4
+            e.rawMagnitude = 372.4; e.fieldMagnitude = 45 + d * 40; e.filteredMagnitude = 45 + d * 40; e.hardIronMagnitude = 341
+            e.phaseName = "ready"; e.rawRate = 100; e.hfVariance = 4 + d * 20; e.calibrationAccuracy = "عالية"
         }
         #endif
         return e
@@ -79,6 +81,15 @@ struct SecondaryButtonStyle: ButtonStyle {
 struct RootView: View {
     @AppStorage("onboarded") private var onboarded = false
     var body: some View {
+        #if DEBUG
+        if let d = UserDefaults.standard.string(forKey: "demoScreen") {
+            if d == "finder" { NavigationStack { SensorFinderView() } } else { TestModeView() }
+        } else { main }
+        #else
+        main
+        #endif
+    }
+    @ViewBuilder private var main: some View {
         if onboarded {
             TabView {
                 ScanView().tabItem { Label("الفحص", systemImage: "bolt.horizontal.circle") }

@@ -23,6 +23,8 @@ jobs:
           shot 2-scan-strong -onboarded YES -demoScore 0.85
           shot 3-scan-medium -onboarded YES -demoScore 0.5
           shot 4-scan-low -onboarded YES -demoScore 0.1
+          shot 5-finder -onboarded YES -demoScreen finder
+          shot 6-test -onboarded YES -demoScreen test -demoScore 0.4
           sips -g pixelWidth -g pixelHeight shots/*.png
       - uses: actions/upload-artifact@v4
         with: { name: screenshots, path: shots/ }
