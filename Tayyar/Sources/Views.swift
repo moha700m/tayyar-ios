@@ -81,6 +81,14 @@ struct ScanView: View {
                         CalibrateView()
                     } else {
                         statusBanner
+                        if engine.needsRecalibration {
+                            Button { scanning = false; feedback.stop(); engine.resetBaseline() } label: {
+                                Label("القراءة انحرفت، اضغط هنا وأعد المعايرة بعيد عن الجدار", systemImage: "arrow.triangle.2.circlepath").font(.callout.bold())
+                            }.buttonStyle(.bordered).tint(.orange)
+                        }
+                        if engine.suppressedByMotion {
+                            Label("حركتك سريعة، حرّك الجوال ببطء", systemImage: "tortoise.fill").font(.callout).foregroundStyle(.orange)
+                        }
                         Label("تقدير مساعد وليس جهاز سلامة، وممكن يفوّت أسلاك. افصل الكهربا من الطبلون واستخدم جهاز كشف احترافي قبل الخرم", systemImage: "exclamationmark.shield.fill")
                             .font(.callout.bold()).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                         GaugeView(score: scanning ? engine.score : 0).frame(height: 260)
@@ -213,7 +221,8 @@ struct CalibrateView: View {
                 .font(.title3).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             if engine.calibrating {
                 ProgressView(value: engine.calibrationProgress).scaleEffect(y: 3).padding()
-                Text("جاري المعايرة لا تحرك الجوال").font(.title3.bold()).foregroundStyle(Theme.amber)
+                Text(engine.calibrationTooNoisy ? "فيه حركة أو معدن قريب، خل الجوال ثابت بعيد عن الجدار" : "جاري المعايرة، خل الجوال ثابت").font(.title3.bold()).foregroundStyle(engine.calibrationTooNoisy ? .orange : Theme.amber).multilineTextAlignment(.center)
+                Text("دقة البوصلة: \(engine.calibrationAccuracy)").font(.callout).foregroundStyle(.secondary)
             } else {
                 Button { engine.beginCalibration() } label: {
                     Label("ابدأ المعايرة", systemImage: "scope").font(.title2.bold()).frame(maxWidth: .infinity, minHeight: 60)
@@ -262,6 +271,15 @@ struct TestModeView: View {
                 } header: { Text("الطيف الترددي") } footer: {
                     Text("قرّب الجوال من سلك شغال (مثل سلك شاحن لابتوب أو مكيف شغال) وشوف هل يطلع ارتفاع في المنطقة الصفرا")
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Button(engine.recording ? "وقف التسجيل (\(engine.recordedLines))" : "سجّل قراءات للتطوير") { engine.toggleRecording() }
+                        .buttonStyle(.bordered)
+                    if !engine.recording, engine.recordedLines > 1, let url = engine.exportTrace() {
+                        ShareLink("صدّر CSV", item: url).buttonStyle(.borderedProminent)
+                    }
+                }.padding(8).font(.footnote)
             }
             .navigationTitle("وضع التجربة")
             .onAppear { engine.start() }
