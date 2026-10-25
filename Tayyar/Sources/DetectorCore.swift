@@ -102,7 +102,7 @@ public final class DetectorCore {
             }
             let still = std <= cfg.calMaxStd && gyro <= 0.5
             calibrationProgress = still ? min(0.99, span / cfg.calWindow) : min(calibrationProgress, 0.3)
-            if !still { calBuf = Array(calBuf.suffix(3)) }
+            if !still && vals.count > 10 { calibrationTooNoisy = true; calBuf = Array(calBuf.suffix(3)) }
             return
         case .ready: break
         }
@@ -180,7 +180,11 @@ public final class DetectorCore {
         if spectrumCounter % 5 == 0 {
             spectrum = (1..<n / 2).map { k in (Double(k) * bin, axes.reduce(0) { $0 + goertzel($1, k: Double(k)) }) }
         }
-        guard humMeasurable else { snrDB = 0; humScore = 0; humLikely = false; return }
+        guard humMeasurable else {
+            snrDB = 0; humScore = 0; humLikely = false
+            if phase == .calibrating || phase == .warmup { calSNRs.append(0) }
+            return
+        }
         let target = axes.reduce(0) { $0 + goertzel($1, k: kT) }
         var noise: [Double] = []
         for off in [-7.0, -6, -5, -4, -3, 3, 4, 5, 6, 7] { noise.append(axes.reduce(0) { $0 + goertzel($1, k: kT + off) }) }
