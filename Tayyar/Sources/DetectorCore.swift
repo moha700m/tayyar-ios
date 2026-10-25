@@ -23,7 +23,9 @@ public final class DetectorCore {
         public var humMinSNR = 10.0          // dB above neighbour floor
         public var humAboveCal = 8.0         // dB above calibration SNR
         public var humDwell = 1.0            // s continuously high before "likely"
-        public var humRelease = 0.5          // s low before clearing
+        public var humRelease = 0.15         // s low (short window) before clearing
+        public var humShortN = 48            // short window used only for fast release
+        public var offsetStuck = 4.0         // s of flat, unchanging deviation → treat as sensor offset shift
         public var mainsHz = 60.0
         public init() {}
     }
@@ -53,6 +55,7 @@ public final class DetectorCore {
     private var lastFieldT: Double?
     private var metalAboveSince: Double?
     private var driftAccum = 0.0
+    private var flatSince: Double?, flatRef = 0.0
     private var bx: [Double] = [], by: [Double] = [], bz: [Double] = [], ts: [Double] = []
     private var hop = 0
     private var humAboveSince: Double?, humBelowSince: Double?
@@ -119,7 +122,18 @@ public final class DetectorCore {
         var raw = max(0, min(1, (deviation - dead) / cfg.metalFullScale))
         suppressedByMotion = gyro > cfg.rotationSuppress
         if suppressedByMotion { raw = min(raw, metalScore) }       // never escalate while twisting fast
-        metalScore += (raw > metalScore ? 0.6 : 0.25) * (raw - metalScore)
+        metalScore += (raw > metalScore ? 0.6 : 0.35) * (raw - metalScore)
+        if raw == 0 && metalScore < 0.01 { metalScore = 0 }
+        // A real object changes as you sweep; a perfectly flat, large deviation for seconds while the
+        // phone moves is a sensor offset jump (iOS recalibrated the compass) → re-anchor the baseline.
+        if deviation > dead {
+            if flatSince == nil || abs(deviation - flatRef) > 1.0 { flatSince = t; flatRef = deviation }
+            else if t - flatSince! > cfg.offsetStuck && gyro > 0.15 {
+                baseline = ema; needsRecalibration = true; flatSince = nil
+                metalScore = 0; metalLikely = false; metalAboveSince = nil
+                return
+            }
+        } else { flatSince = nil }
         if metalScore > 0.35 {
             if metalAboveSince == nil { metalAboveSince = t }
             if t - metalAboveSince! >= cfg.metalDwell { metalLikely = true }
@@ -194,16 +208,26 @@ public final class DetectorCore {
         if phase == .calibrating || phase == .warmup { calSNRs.append(snrDB); return }
         guard phase == .ready else { return }
         let thr = max(cfg.humMinSNR, baselineSNR + cfg.humAboveCal)
-        if snrDB >= thr {
-            humBelowSince = nil
-            if humAboveSince == nil { humAboveSince = t }
-            if t - humAboveSince! >= cfg.humDwell { humLikely = true }
-        } else if snrDB < thr - 3 {
+        // short-window SNR reacts within ~0.3 s when the wire/load goes away
+        let sn = cfg.humShortN
+        let sAxes = [prep(Array(bx.suffix(sn))), prep(Array(by.suffix(sn))), prep(Array(bz.suffix(sn)))]
+        let kS = aliasHz / (fs / Double(sn))
+        let tS = sAxes.reduce(0) { $0 + goertzel($1, k: kS) }
+        var nS: [Double] = []
+        for off in [-4.0, -3, 3, 4] where kS + off > 1 && kS + off < Double(sn / 2) - 0.5 { nS.append(sAxes.reduce(0) { $0 + goertzel($1, k: kS + off) }) }
+        nS.sort()
+        let snrShort = nS.isEmpty ? snrDB : 10 * log10(max(tS, 1e-14) / max(1e-12, nS[nS.count / 2]))
+        if snrShort < thr - 3 {
             humAboveSince = nil
             if humBelowSince == nil { humBelowSince = t }
             if t - humBelowSince! >= cfg.humRelease { humLikely = false }
+        } else if snrDB >= thr {
+            humBelowSince = nil
+            if humAboveSince == nil { humAboveSince = t }
+            if t - humAboveSince! >= cfg.humDwell { humLikely = true }
         }
         let target01 = humLikely ? max(0.4, min(1, (snrDB - thr + 6) / 15)) : 0
-        humScore += (target01 > humScore ? 0.5 : 0.3) * (target01 - humScore)
+        humScore += (target01 > humScore ? 0.5 : 0.7) * (target01 - humScore)
+        if !humLikely && humScore < 0.02 { humScore = 0 }
     }
 }

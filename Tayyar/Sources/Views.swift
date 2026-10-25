@@ -237,6 +237,7 @@ struct CalibrateView: View {
 
 struct TestModeView: View {
     @Environment(SensorEngine.self) private var engine
+    @State private var traceURL: URL?
     var body: some View {
         NavigationStack {
             List {
@@ -276,10 +277,11 @@ struct TestModeView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 HStack {
-                    Button(engine.recording ? "وقف التسجيل (\(engine.recordedLines))" : "سجّل قراءات للتطوير") { engine.toggleRecording() }
+                    Button(engine.recording ? "وقف التسجيل (\(engine.recordedLines))" : "سجّل قراءات للتطوير") { traceURL = nil; engine.toggleRecording() }
                         .buttonStyle(.bordered)
-                    if !engine.recording, engine.recordedLines > 1, let url = engine.exportTrace() {
-                        ShareLink("صدّر CSV", item: url).buttonStyle(.borderedProminent)
+                    if !engine.recording, engine.recordedLines > 1 {
+                        if let url = traceURL { ShareLink("صدّر CSV", item: url).buttonStyle(.borderedProminent) }
+                        else { Button("جهّز الملف") { traceURL = engine.exportTrace() }.buttonStyle(.borderedProminent) }
                     }
                 }.padding(8).font(.footnote)
             }

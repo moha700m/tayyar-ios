@@ -109,4 +109,35 @@ final class DetectorTests: XCTestCase {
         }
         XCTAssertFalse(anyLikely); XCTAssertLessThan(maxScore, 0.2)
     }
+
+    /// Strong metal for 2 s, then removed: score must fall < 0.2 within 0.5 s and stay down.
+    func testMetalReleaseFast() {
+        let s = Sim(); s.calibrate(); s.run(1)
+        let t0 = s.t
+        s.run(2, dc: { $0 >= t0 ? 60 : 0 })
+        XCTAssertGreaterThan(s.core.score, 0.9, "should reach full scale")
+        let tOff = s.t; var fell: Double?
+        s.run(3) { c, t in if fell == nil && c.score < 0.2 { fell = t } }
+        XCTAssertNotNil(fell); if let f = fell { XCTAssertLessThan(f - tOff, 0.5) }
+        XCTAssertLessThan(s.core.score, 0.05, "must not stick")
+    }
+    /// Hum for 3 s then load switched off: score < 0.2 within 0.5 s.
+    func testHumReleaseFast() {
+        let s = Sim(); s.calibrate()
+        let t0 = s.t
+        s.run(3, ac: { 1.0 * sin(2 * .pi * 60 * $0) })
+        XCTAssertTrue(s.core.humLikely)
+        let tOff = s.t; var fell: Double?
+        s.run(3) { c, t in if fell == nil && c.score < 0.2 { fell = t } }
+        _ = t0
+        XCTAssertNotNil(fell); if let f = fell { XCTAssertLessThan(f - tOff, 0.5) }
+        XCTAssertLessThan(s.core.score, 0.05)
+    }
+    /// iOS re-estimates the compass offset mid-scan (flat 30 µT jump while moving): must not stay pinned.
+    func testOffsetJumpDoesNotPin() {
+        let s = Sim(); s.calibrate()
+        let t0 = s.t
+        s.run(8, rot: 0.3, dc: { $0 >= t0 ? 30 : 0 })
+        XCTAssertLessThan(s.core.score, 0.1); XCTAssertTrue(s.core.needsRecalibration)
+    }
 }

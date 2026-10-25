@@ -181,7 +181,7 @@ final class SensorEngine {
             histBuf.append(SamplePoint(id: histCounter, value: useCal && lastCalMag > 0 ? lastCalMag : mag))
             if histBuf.count > 250 { histBuf.removeFirst(histBuf.count - 250) }
         }
-        guard t - lastPublish > 0.05 else { return }
+        guard t - lastPublish >= 0.025 else { return }   // ~40 Hz UI
         lastPublish = t
         let c = core
         let snap = (phase: c.phase, prog: c.calibrationProgress, noisy: c.calibrationTooNoisy, base: c.baseline, std: c.baselineStd,
