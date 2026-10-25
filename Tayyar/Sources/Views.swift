@@ -74,6 +74,7 @@ struct ScanView: View {
     @State private var showHelp = false
     @AppStorage("geiger") private var geiger = false
     @State private var sessionPeak = 0.0
+    @State private var shareCard: Image?
 
     var body: some View {
         NavigationStack {
@@ -104,7 +105,8 @@ struct ScanView: View {
                         liveGraph
                         Button {
                             scanning.toggle()
-                            if scanning { feedback.start(); VoiceGuide.shared.say(.scanStart) } else { feedback.stop() }
+                            if scanning { feedback.start(); shareCard = nil; VoiceGuide.shared.say(.scanStart) }
+                            else { feedback.stop(); if sessionPeak > 0.05 { shareCard = ResultCard.render(peak: sessionPeak) } }
                         } label: {
                             Label(scanning ? "وقف الفحص" : "ابدأ الفحص", systemImage: scanning ? "stop.fill" : "play.fill")
                                 .font(.title2.bold()).frame(maxWidth: .infinity, minHeight: 60)
@@ -112,8 +114,8 @@ struct ScanView: View {
                         .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.roundedRectangle(radius: 18))
                         .tint(scanning ? .red : Theme.amber)
-                        if sessionPeak > 0.05 {
-                            ShareLink(item: ResultCard.render(peak: sessionPeak), preview: SharePreview("نتيجة تيّار", image: ResultCard.render(peak: sessionPeak))) {
+                        if !scanning, let card = shareCard {
+                            ShareLink(item: card, preview: SharePreview("نتيجة تيّار", image: card)) {
                                 Label("شارك النتيجة", systemImage: "square.and.arrow.up").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 50)
                             }.buttonStyle(.bordered)
                         }
