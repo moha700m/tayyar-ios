@@ -1,0 +1,28 @@
+name: Screenshots
+on: workflow_dispatch
+jobs:
+  shots:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - run: brew install xcodegen && xcodegen generate
+      - name: Capture
+        run: |
+          set -x
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone 1[6-9] Pro Max" | head -1 | grep -oE "[A-F0-9-]{36}")
+          xcodebuild build -project Tayyar.xcodeproj -scheme Tayyar -configuration Debug -destination "id=$UDID" -derivedDataPath build CODE_SIGNING_ALLOWED=NO -quiet
+          APP=$(find build/Build/Products -name Tayyar.app -path "*iphonesimulator*" | head -1)
+          xcrun simctl boot $UDID || true; xcrun simctl bootstatus $UDID -b
+          xcrun simctl status_bar $UDID override --time 9:41 --batteryState charged --batteryLevel 100 || true
+          xcrun simctl install $UDID "$APP"; mkdir -p shots
+          shot(){ n=$1; shift; xcrun simctl terminate $UDID com.moha700m.tayyar || true; xcrun simctl launch $UDID com.moha700m.tayyar "$@"; sleep 6; xcrun simctl io $UDID screenshot shots/$n.png; }
+          shot 1-onboarding
+          shot 2-scan-strong -onboarded YES -demoScore 0.85
+          shot 3-scan-medium -onboarded YES -demoScore 0.5
+          shot 4-scan-low -onboarded YES -demoScore 0.1
+          sips -g pixelWidth -g pixelHeight shots/*.png
+      - uses: actions/upload-artifact@v4
+        with: { name: screenshots, path: shots/ }

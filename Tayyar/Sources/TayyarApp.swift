@@ -2,7 +2,18 @@ import SwiftUI
 
 @main
 struct TayyarApp: App {
-    @State private var engine = SensorEngine()
+    @State private var engine: SensorEngine = {
+        let e = SensorEngine()
+        #if DEBUG
+        // Simulator-only screenshot fixture: the simulator has no magnetometer.
+        if let v = UserDefaults.standard.string(forKey: "demoScore"), let d = Double(v) {
+            e.available = true; e.baselineMagnitude = 45; e.humMeasurable = true
+            e.humScore = d; e.magScore = d * 0.7; e.magDeviation = d * 40; e.humRatio = 1 + d * 3
+            e.humLikely = d > 0.6; e.metalLikely = d > 0.4
+        }
+        #endif
+        return e
+    }()
     var body: some Scene {
         WindowGroup {
             RootView()

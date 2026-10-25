@@ -148,17 +148,17 @@ enum ScanStatus: CaseIterable {
     case safe, caution, danger
     init(score: Double) { self = score < 0.33 ? .safe : (score < 0.66 ? .caution : .danger) }
     var title: String {
-        switch self { case .safe: "آمن نسبياً"; case .caution: "انتبه"; case .danger: "خطر فيه سلك محتمل" }
+        switch self { case .safe: "ما فيه إشارة واضحة"; case .caution: "إشارة متوسطة"; case .danger: "إشارة قوية: سلك أو معدن محتمل" }
     }
     var meaning: String {
         switch self {
-        case .safe: "المؤشر أخضر وما فيه شي واضح، بس برضو افصل الكهربا"
+        case .safe: "ما فيه إشارة واضحة، وهذا ما يعني إن المكان خالي من الأسلاك. افصل الكهربا دايماً"
         case .caution: "المؤشر أصفر، فيه حديد أو سلك قريب. تحرك ببطء وتأكد"
         case .danger: "المؤشر أحمر مع صوت ورجة، لا تخرم هنا أبداً"
         }
     }
     var icon: String {
-        switch self { case .safe: "checkmark.shield.fill"; case .caution: "exclamationmark.triangle.fill"; case .danger: "bolt.trianglebadge.exclamationmark.fill" }
+        switch self { case .safe: "circle.dashed"; case .caution: "exclamationmark.triangle.fill"; case .danger: "bolt.trianglebadge.exclamationmark.fill" }
     }
     var color: Color {
         switch self { case .safe: .green; case .caution: Theme.amber; case .danger: .red }

@@ -12,7 +12,7 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
                 Text("تيّار").font(.largeTitle.bold()).frame(maxWidth: .infinity)
-                Text("قبل لا تخرم الجدار، مرّر جوالك عليه وتيّار ينبهك لو حس بسلك كهربا شغال أو حديد").font(.title3).multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+                Text("قبل لا تخرم الجدار، مرّر جوالك عليه وتيّار يعطيك تقدير تقريبي لوجود سلك عليه حمل أو حديد. تقدير مساعد وليس جهاز سلامة").font(.title3).multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
                 GuideSteps()
                 Toggle("فاهم إن التطبيق للتنبيه بس وما يغني عن فصل الكهربا", isOn: $agreed)
                     .font(.body.bold()).toggleStyle(.switch).padding().background(Theme.card, in: .rect(cornerRadius: 14))
@@ -58,7 +58,7 @@ struct GaugeView: View {
         }
         .environment(\.layoutDirection, .leftToRight)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("مستوى الخطر \(Int(score * 100)) بالمية، \(label)")
+        .accessibilityLabel("قوة الإشارة \(Int(score * 100)) بالمية، \(label)")
     }
     var label: String { ScanStatus(score: score).title }
 }
@@ -81,6 +81,8 @@ struct ScanView: View {
                         CalibrateView()
                     } else {
                         statusBanner
+                        Label("تقدير مساعد وليس جهاز سلامة، وممكن يفوّت أسلاك. افصل الكهربا من الطبلون واستخدم جهاز كشف احترافي قبل الخرم", systemImage: "exclamationmark.shield.fill")
+                            .font(.callout.bold()).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                         GaugeView(score: scanning ? engine.score : 0).frame(height: 260)
                         scanHint
                         HStack(spacing: 12) {
@@ -108,8 +110,6 @@ struct ScanView: View {
                         }
                         Label("تنبيه صريح: تيّار أداة مساعدة تعتمد على حساس البوصلة في الجوال، مو جهاز كشف معتمد. يلقط السلك اللي يمشي فيه تيار قوي (شغّل جهاز يسحب كهربا مثل سخان أو استشوار)، وما يلقط السلك اللي ما عليه حمل. الحديد والمسامير تبان في مؤشر المعدن. افصل الكهربا من الطبلون دايماً قبل الخرم", systemImage: "exclamationmark.triangle.fill")
                             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        Label("التطبيق ينبهك بس. افصل الكهربا دايماً قبل الخرم", systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding()
@@ -122,7 +122,12 @@ struct ScanView: View {
                 }
             }
             .sheet(isPresented: $showHelp) { HowToView() }
-            .onAppear { engine.start() }
+            .onAppear {
+                engine.start()
+                #if DEBUG
+                if UserDefaults.standard.string(forKey: "demoScore") != nil { scanning = true }
+                #endif
+            }
             .onDisappear { scanning = false; feedback.stop() }
             .onChange(of: engine.rawMagnitude) {
                 guard scanning else { return }
