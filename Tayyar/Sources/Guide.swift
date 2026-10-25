@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// Back of an iPhone drawn in SwiftUI, with the magnetometer area highlighted.
 struct PhoneDiagram: View {
@@ -270,62 +271,148 @@ enum SensorInfo {
     }
 }
 
-/// Lets the user pin the real magnetometer hotspot: hold a steel key/screwdriver over each cell; peak change wins.
+/// Guided wizard: the app highlights one spot at a time, detects the key automatically, then shows the result.
 struct SensorFinderView: View {
     @Environment(SensorEngine.self) private var engine
+    @Environment(\.dismiss) private var dismiss
     @AppStorage("sensorX") private var sx = 0.5
     @AppStorage("sensorY") private var sy = 0.45
-    @State private var ref: Double?
-    @State private var peaks: [Int: Double] = [:]
-    @State private var active: Int?
-    @State private var done = false
-    private let cols = 3, rows = 4
+    enum Step { case intro, reference, cell, lift, result }
+    @State private var step: Step = .intro
+    @State private var cell = 0
+    @State private var ref = 0.0
+    @State private var refSamples: [Double] = []
+    @State private var peaks: [Double] = Array(repeating: 0, count: 6)
+    @State private var cellStart = Date()
+    @State private var aboveSince: Date?
+    @State private var saved = false
+    private let cols = 2, rows = 3
+    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+
+    private func center(_ i: Int) -> CGPoint { CGPoint(x: (Double(i % cols) + 0.5) / Double(cols), y: 0.12 + (Double(i / cols) + 0.5) / Double(rows) * 0.8) }
+    private var live: Double { abs(engine.currentMagnitude - ref) }
+    private var best: Int { peaks.indices.max { peaks[$0] < peaks[$1] } ?? 2 }
+    private var progress: Double {
+        switch step { case .intro, .reference: 0; case .cell, .lift: Double(cell) / 6; case .result: 1 }
+    }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                Text("جهازك: \(SensorInfo.model)").font(.callout).foregroundStyle(.secondary)
-                Text("حط الجوال على طاولة بعيد عن الحديد، ظهره لفوق. اضغط على مربع، وحط مفتاح حديد أو مفك على نفس المكان في ظهر الجوال ٣ ثواني. كرر لكل المربعات، والمربع اللي يعطي أعلى رقم هو مكان الحساس")
-                    .font(.body).fixedSize(horizontal: false, vertical: true)
-                Text(String(format: "التغير الحالي: %.1f µT", live)).font(.title2.bold()).monospacedDigit()
-                Grid(horizontalSpacing: 6, verticalSpacing: 6) {
-                    ForEach(0..<rows, id: \.self) { r in
-                        GridRow {
-                            ForEach(0..<cols, id: \.self) { c in
-                                let i = r * cols + c
-                                Button { active = i } label: {
-                                    VStack {
-                                        Text(peaks[i].map { String(format: "%.0f", $0) } ?? "—").font(.headline).monospacedDigit()
-                                    }
-                                    .frame(maxWidth: .infinity, minHeight: 64)
-                                    .background(active == i ? Theme.amber.opacity(0.5) : (best == i ? Color.green.opacity(0.4) : Theme.card), in: .rect(cornerRadius: 10))
-                                }.buttonStyle(.plain)
-                            }
-                        }
-                    }
+            VStack(spacing: 22) {
+                if step != .intro { ProgressView(value: progress).scaleEffect(y: 2.5).tint(Theme.amber) }
+                switch step {
+                case .intro: intro
+                case .reference:
+                    big("خل الجوال على الطاولة وشيل المفتاح بعيد")
+                    ProgressView().scaleEffect(2).padding()
+                    small("ثانيتين بس…")
+                case .cell, .lift:
+                    big(step == .cell ? "حط المفتاح هنا" : "ممتاز، شيل المفتاح")
+                    phone(highlight: cell, arrow: step == .cell)
+                    small(step == .cell ? "على ظهر الجوال، مكان الدائرة الصفرا بالضبط. انتظر شوي" : "ارفع المفتاح عن الجوال")
+                    Text("المكان \(cell + 1) من ٦").font(.title3.bold())
+                case .result:
+                    big("لقينا مكان الحساس")
+                    phone(highlight: best, arrow: false, found: true)
+                    small(peaks[best] > 3 ? "هذا المكان هو اللي تمرره على الجدار وقت الفحص" : "ما بان فرق واضح، جرّب مفتاح أو مفك حديد أكبر")
+                    Button {
+                        let c = center(best); sx = c.x; sy = c.y; saved = true
+                    } label: { Text(saved ? "تم الحفظ ✓" : "احفظ").font(.title.bold()).frame(maxWidth: .infinity, minHeight: 64) }
+                        .buttonStyle(.borderedProminent).disabled(saved)
+                    Button("أعد من البداية") { restart() }.font(.title3).buttonStyle(.bordered)
                 }
-                .environment(\.layoutDirection, .leftToRight)
-                .padding().background(Color(white: 0.2), in: .rect(cornerRadius: 28))
-                Text("الشبكة = ظهر الجوال وأنت تشوفه (الكاميرا فوق يسار)").font(.footnote).foregroundStyle(.secondary)
-                Button {
-                    if let b = best { sx = (Double(b % cols) + 0.5) / Double(cols); sy = (Double(b / cols) + 0.5) / Double(rows); done = true }
-                } label: { Label("احفظ مكان الحساس", systemImage: "checkmark").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 50) }
-                .buttonStyle(.borderedProminent).disabled(best == nil)
-                if done { Text("تم الحفظ، الرسمة في الشرح صارت على مكان حساس جوالك").foregroundStyle(.green) }
-                Button("ابدأ من جديد") { peaks = [:]; ref = engine.currentMagnitude; done = false }.buttonStyle(.bordered)
-            }.padding()
+            }
+            .padding()
         }
         .background(Theme.bg)
-        .navigationTitle("تحديد مكان الحساس")
-        .onAppear { engine.start(); ref = nil }
-        .onChange(of: engine.rawMagnitude) {
-            if ref == nil, engine.currentMagnitude > 0 { ref = engine.currentMagnitude }
-            if let a = active { peaks[a] = max(peaks[a] ?? 0, live) }
+        .navigationTitle("مكان الحساس")
+        .onAppear { engine.start() }
+        .onReceive(timer) { _ in tick() }
+    }
+
+    private var intro: some View {
+        VStack(spacing: 22) {
+            HStack(spacing: 24) {
+                Image(systemName: "iphone.gen3").font(.system(size: 90)).rotationEffect(.degrees(180)).foregroundStyle(.white)
+                Image(systemName: "key.fill").font(.system(size: 64)).foregroundStyle(Theme.amber)
+            }.padding(.top, 10).accessibilityHidden(true)
+            big("نلقى مكان الحساس في جوالك")
+            VStack(alignment: .leading, spacing: 16) {
+                bullet(1, "اقلب الجوال على وجهه فوق طاولة")
+                bullet(2, "امسك مفتاح حديد بيدك")
+                bullet(3, "حط المفتاح وين ما نقول لك، والتطبيق يكمّل لحاله")
+            }
+            Button { restart() } label: { Text("ابدأ").font(.title.bold()).frame(maxWidth: .infinity, minHeight: 64) }
+                .buttonStyle(.borderedProminent)
         }
     }
-    private var live: Double { ref.map { abs(engine.currentMagnitude - $0) } ?? 0 }
-    private var best: Int? {
-        guard let m = peaks.max(by: { $0.value < $1.value }), m.value > 3 else { return nil }
-        return m.key
+
+    private func phone(highlight: Int, arrow: Bool, found: Bool = false) -> some View {
+        GeometryReader { g in
+            let w = g.size.width, h = g.size.height, c = center(highlight)
+            ZStack {
+                RoundedRectangle(cornerRadius: w * 0.16).fill(Color(white: 0.22))
+                RoundedRectangle(cornerRadius: w * 0.16).stroke(.white.opacity(0.4), lineWidth: 2)
+                RoundedRectangle(cornerRadius: w * 0.08).fill(Color(white: 0.08)).frame(width: w * 0.38, height: w * 0.38)
+                    .position(x: w * 0.26, y: w * 0.26)
+                ForEach(0..<6, id: \.self) { i in
+                    let p = center(i)
+                    Circle().stroke(.white.opacity(0.25), lineWidth: 2).frame(width: w * 0.22).position(x: w * p.x, y: h * p.y)
+                }
+                Circle().fill(found ? Color.green : Theme.amber).frame(width: w * 0.3)
+                    .overlay(Image(systemName: found ? "checkmark" : "key.fill").font(.system(size: w * 0.12, weight: .bold)).foregroundStyle(.black))
+                    .position(x: w * c.x, y: h * c.y)
+                if arrow {
+                    Image(systemName: "arrow.down").font(.system(size: w * 0.18, weight: .heavy)).foregroundStyle(Theme.amber)
+                        .position(x: w * c.x, y: h * c.y - w * 0.3)
+                }
+            }
+            .environment(\.layoutDirection, .leftToRight)
+        }
+        .aspectRatio(0.49, contentMode: .fit)
+        .frame(height: 360)
+        .animation(.easeInOut, value: highlight)
+        .accessibilityLabel("رسمة ظهر الجوال، المكان المحدد \(highlight + 1)")
+    }
+
+    private func big(_ t: String) -> some View { Text(t).font(.largeTitle.bold()).multilineTextAlignment(.center).frame(maxWidth: .infinity) }
+    private func small(_ t: String) -> some View { Text(t).font(.title3).multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true) }
+    private func bullet(_ n: Int, _ t: String) -> some View {
+        HStack(spacing: 14) {
+            Text("\(n)").font(.title.bold()).foregroundStyle(.black).frame(width: 48, height: 48).background(Theme.amber, in: .circle)
+            Text(t).font(.title2).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func restart() {
+        peaks = Array(repeating: 0, count: 6); cell = 0; refSamples = []; saved = false
+        step = .reference; cellStart = Date()
+    }
+
+    private func tick() {
+        let m = engine.currentMagnitude
+        guard m > 0 else { return }
+        let now = Date()
+        switch step {
+        case .intro, .result: break
+        case .reference:
+            refSamples.append(m)
+            if now.timeIntervalSince(cellStart) > 2 {
+                ref = refSamples.sorted()[refSamples.count / 2]
+                step = .cell; cellStart = now; aboveSince = nil
+            }
+        case .cell:
+            peaks[cell] = max(peaks[cell], live)
+            if live > 4 { aboveSince = aboveSince ?? now } else { aboveSince = nil }
+            let gotIt = aboveSince.map { now.timeIntervalSince($0) > 1.2 } ?? false
+            let timeout = now.timeIntervalSince(cellStart) > 5   // far from sensor: little change, move on
+            if gotIt || timeout { step = gotIt ? .lift : .cell; if !gotIt { next(now) } else { cellStart = now } }
+        case .lift:
+            if live < 2 || now.timeIntervalSince(cellStart) > 4 { next(now) }
+        }
+    }
+    private func next(_ now: Date) {
+        if cell >= 5 { step = .result; return }
+        cell += 1; step = .cell; cellStart = now; aboveSince = nil
     }
 }
