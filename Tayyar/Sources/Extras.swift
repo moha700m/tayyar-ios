@@ -13,7 +13,7 @@ enum AudioSession {
 struct ScanRecord: Codable, Identifiable, Equatable {
     var id = UUID()
     var date: Date
-    var kind: String      // "metal" | "wire"
+    var kind: String      // "metal" | "ac" (legacy "wire")
     var peak: Int         // 0–100
 }
 
@@ -47,9 +47,9 @@ struct HistoryView: View {
             }
             ForEach(items) { r in
                 HStack {
-                    Image(systemName: r.kind == "wire" ? "bolt.fill" : "square.grid.3x3.fill").foregroundStyle(r.kind == "wire" ? .red : Theme.amber)
+                    Image(systemName: r.kind != "metal" ? "waveform" : "square.grid.3x3.fill").foregroundStyle(r.kind != "metal" ? .orange : Theme.amber)
                     VStack(alignment: .leading) {
-                        Text(r.kind == "wire" ? "إشارة سلك عليه حمل" : "حديد أو معدن").font(.headline)
+                        Text(r.kind != "metal" ? "تذبذب مغناطيسي" : "حديد أو معدن").font(.headline)
                         Text(r.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -94,14 +94,14 @@ struct ExplainView: View {
             Section("مؤشر الحديد والمعدن") {
                 Text("الحديد والمسامير والمواسير الحديد تغيّر المجال المغناطيسي حول الجوال. تيّار يقارن القراءة بالمعايرة، فلو زادت أو نقصت بوضوح يرتفع المؤشر. النحاس والألمنيوم غالباً ما يبانون لأنهم ما يتأثرون بالمغناطيس")
             }
-            Section("مؤشر سلك الكهربا") {
-                Text("السلك اللي يمشي فيه تيار متردد يطلع مجال يتذبذب ٦٠ مرة بالثانية. تيّار يدوّر على هالذبذبة بالذات. لو ما فيه جهاز شغال على السلك ما يطلع مجال وما يبان، عشان كذا شغّل جهاز يسحب كهربا قبل الفحص")
+            Section("مؤشر التذبذب (تجريبي)") {
+                Text("يعرض هل المجال المغناطيسي يتذبذب بسرعة حول الجوال. هذي قراءة فيزيائية بس، وتيّار ما يكشف الأسلاك ولا يحدد إذا فيها كهربا")
             }
             Section("حدود مهمة") {
                 Text("تقدير مساعد وليس جهاز سلامة، وممكن يفوّت أسلاك. افصل الكهربا من الطبلون واستخدم جهاز كشف احترافي قبل الخرم")
             }
         }
-        .navigationTitle("الفرق بين الحديد والسلك")
+        .navigationTitle("كيف يشتغل القياس")
     }
 }
 

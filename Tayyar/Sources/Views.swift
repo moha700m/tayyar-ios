@@ -13,7 +13,7 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
                 Text("تيّار").font(.largeTitle.bold()).frame(maxWidth: .infinity)
-                Text("قبل لا تخرم الجدار، مرّر جوالك عليه وتيّار يعطيك تقدير تقريبي لوجود سلك عليه حمل أو حديد. تقدير مساعد وليس جهاز سلامة").font(.title3).multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+                Text("قبل لا تخرم الجدار، مرّر جوالك عليه وتيّار يقيس المجال المغناطيسي ويعطيك تقدير تقريبي لوجود حديد أو معدن. تقدير مساعد وليس جهاز سلامة").font(.title3).multilineTextAlignment(.center).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
                 GuideSteps()
                 Toggle("فاهم إن التطبيق للتنبيه بس وما يغني عن فصل الكهربا", isOn: $agreed)
                     .font(.body.bold()).toggleStyle(.switch).tint(Theme.amber).padding().background(Theme.card, in: .rect(cornerRadius: 14))
@@ -141,7 +141,7 @@ struct ScanView: View {
                         liveGraph
                         Button { stopAndRecal() } label: { Label("أعد المعايرة", systemImage: "arrow.triangle.2.circlepath") }
                             .buttonStyle(SecondaryButtonStyle())
-                        Text("تقدير مساعد وليس جهاز سلامة، وممكن يفوّت أسلاك. افصل الكهربا من الطبلون واستخدم جهاز كشف احترافي قبل الخرم. مؤشر الذبذبة تجريبي ويلقط بس الأسلاك اللي عليها حمل قوي وقريبة جداً، والحديد والمسامير تبان في مؤشر المعدن.")
+                        Text("تقدير مساعد وليس جهاز سلامة، وممكن يفوّت أسلاك. افصل الكهربا من الطبلون واستخدم جهاز كشف احترافي قبل الخرم. تيّار ما يكشف الأسلاك الكهربائية ولا يحدد إذا فيها كهربا. مؤشر الذبذبة تجريبي ويعرض تذبذب المجال المغناطيسي بس.")
                             .font(.footnote).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                             .padding(.top, 8)
                     }
@@ -170,7 +170,7 @@ struct ScanView: View {
             }
             .onChange(of: engine.humLikely) { _, on in
                 guard scanning, on else { return }
-                ScanHistory.add(ScanRecord(date: .now, kind: "wire", peak: Int(engine.score * 100)))
+                ScanHistory.add(ScanRecord(date: .now, kind: "ac", peak: Int(engine.score * 100)))
             }
             .onChange(of: engine.autoZeroCount) { o, n in if n > o { zeroNote = true } }
             .task(id: zeroNote) { if zeroNote { try? await Task.sleep(for: .seconds(3)); zeroNote = false } }
@@ -310,10 +310,10 @@ struct TestModeView: View {
             List {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack { Text("مستوى ذبذبة الكهربا (تجريبي)").font(.subheadline); Spacer()
+                        HStack { Text("مستوى تذبذب المجال (تجريبي)").font(.subheadline); Spacer()
                             Text(String(format: "%.1f dB", engine.hfVariance - engine.baselineSNR)).font(Theme.mono(15)).environment(\.layoutDirection, .leftToRight) }
                         ProgressView(value: engine.humLevel).tint(Theme.level(engine.humLevel))
-                        Text("قرّب ظهر الجوال (مكان الحساس) من شاحن لابتوب أو سلك مكيف أو سخان شغال. الذبذبة ضعيفة جداً وتبان بس قريب من الأسلاك اللي عليها حمل قوي").font(.caption).foregroundStyle(Theme.secondary)
+                        Text("قرّب ظهر الجوال (مكان الحساس) من شاحن لابتوب شغال وشوف تغيّر التذبذب. قراءة تشخيصية بس").font(.caption).foregroundStyle(Theme.secondary)
                     }
                     .accessibilityElement(children: .combine)
                     debugGrid
@@ -323,9 +323,9 @@ struct TestModeView: View {
                 Section("سرعة الحساس الفعلية") {
                     row("المغناطيس الخام", String(format: "%.1f Hz", engine.rawRate))
                     row("حركة الجهاز", String(format: "%.1f Hz", engine.motionRate))
-                    row("تردد الكهربا يطلع عند", String(format: "%.1f Hz", engine.aliasFrequency))
+                    row("التردد المرصود يطلع عند", String(format: "%.1f Hz", engine.aliasFrequency))
                     if engine.rawRate > 0 && engine.rawRate < 30 {
-                        Text("سرعة الحساس قليلة، كشف ذبذبة الكهربا غالباً ما بيشتغل على جوالك").foregroundStyle(Theme.danger).font(.footnote)
+                        Text("سرعة الحساس قليلة، قياس التذبذب غالباً ما بيشتغل على جوالك").foregroundStyle(Theme.danger).font(.footnote)
                     }
                 }
                 Section("المحاور الخام") {
@@ -346,7 +346,7 @@ struct TestModeView: View {
                     }
                     .chartXAxisLabel("Hz").frame(height: 200).environment(\.layoutDirection, .leftToRight)
                 } header: { Text("الطيف الترددي") } footer: {
-                    Text("قرّب الجوال من سلك شغال (شاحن لابتوب أو مكيف شغال) وشوف هل يطلع ارتفاع في المنطقة الصفرا")
+                    Text("قرّب الجوال من شاحن لابتوب شغال وشوف هل يطلع ارتفاع في المنطقة الصفرا")
                 }
             }
             .scrollContentBackground(.hidden).background(Theme.bg)
@@ -418,10 +418,12 @@ struct SettingsView: View {
                 Section("أدوات") {
                     NavigationLink("سجل الفحص") { HistoryView() }
                     NavigationLink("ميزان الاستواء") { LevelView() }
-                    NavigationLink("الفرق بين الحديد والسلك") { ExplainView() }
+                    NavigationLink("خريطة الجدار") { WallMapView() }
+                    NavigationLink("دليل المعايرة") { CalibrationGuideView() }
+                    NavigationLink("كيف يشتغل القياس") { ExplainView() }
                 }
-                Section("نطاق ذبذبة الكهربا") {
-                    Picker("تردد الكهربا", selection: $e.mainsHz) {
+                Section("نطاق التذبذب (متقدم)") {
+                    Picker("التردد", selection: $e.mainsHz) {
                         Text("٦٠ هيرتز").tag(60.0)
                         Text("٥٠ هيرتز").tag(50.0)
                     }
@@ -439,7 +441,7 @@ struct SettingsView: View {
                     Button("كيف أستخدمه") { showHelp = true }
                     Button("اعرض تنبيه السلامة مرة ثانية") { onboarded = false }
                 } footer: {
-                    Text("تيّار ينبهك بس وما يضمن إن المكان آمن. افصل الكهربا واستخدم جهاز كشف أسلاك حقيقي.")
+                    Text("تيّار ينبهك بس وما يضمن إن المكان آمن. تيّار ما يكشف الأسلاك الكهربائية. افصل الكهربا من الطبلون واستخدم جهاز احترافي قبل الخرم.")
                 }
             }
             .scrollContentBackground(.hidden).background(Theme.bg)
