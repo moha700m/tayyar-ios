@@ -83,7 +83,12 @@ struct RootView: View {
     var body: some View {
         #if DEBUG
         if let d = UserDefaults.standard.string(forKey: "demoScreen") {
-            if d == "finder" { NavigationStack { SensorFinderView() } } else { TestModeView() }
+            switch d {
+            case "finder": NavigationStack { SensorFinderView() }
+            case "map": NavigationStack { WallMapView() }
+            case "guide": NavigationStack { CalibrationGuideView() }
+            default: TestModeView()
+            }
         } else { main }
         #else
         main

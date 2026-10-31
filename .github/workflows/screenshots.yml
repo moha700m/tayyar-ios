@@ -25,6 +25,8 @@ jobs:
           shot 4-scan-low -onboarded YES -demoScore 0.1
           shot 5-finder -onboarded YES -demoScreen finder
           shot 6-test -onboarded YES -demoScreen test -demoScore 0.4
+          shot 7-wallmap -onboarded YES -demoScreen map -demoScore 0.5
+          shot 8-calibration-guide -onboarded YES -demoScreen guide
           sips -g pixelWidth -g pixelHeight shots/*.png
       - uses: actions/upload-artifact@v4
         with: { name: screenshots, path: shots/ }

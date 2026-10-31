@@ -108,7 +108,7 @@ struct WallSweepView: View {
                     ctx.stroke(wire, with: .color(.red.opacity(0.55)), style: StrokeStyle(lineWidth: 4, dash: [8, 6]))
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 14))
-                Label("سلك مخفي", systemImage: "bolt.fill").font(.caption.bold())
+                Label("حديد مخفي", systemImage: "square.grid.3x3.fill").font(.caption.bold())
                     .padding(6).background(.red.opacity(0.85), in: .capsule)
                     .position(x: w * 0.62, y: h - 18)
                 // direction arrow
@@ -159,9 +159,9 @@ enum ScanStatus: CaseIterable {
     }
     var meaning: String {
         switch self {
-        case .safe: "ما فيه إشارة واضحة، وهذا ما يعني إن المكان خالي من الأسلاك. افصل الكهربا دايماً"
-        case .caution: "المؤشر أصفر، فيه حديد أو سلك قريب. تحرك ببطء وتأكد"
-        case .danger: "سلك أو معدن محتمل هنا، لا تخرم في هذا المكان"
+        case .safe: "ما فيه تغيّر مغناطيسي واضح، وهذا ما يعني إن المكان خالي. افصل الكهربا دايماً"
+        case .caution: "المؤشر أصفر، فيه تغيّر مغناطيسي متوسط. تحرك ببطء وتأكد"
+        case .danger: "تغيّر مغناطيسي قوي، غالباً حديد أو معدن. لا تخرم هنا"
         }
     }
     var icon: String {
@@ -231,7 +231,7 @@ struct SafetyCard: View {
             Image(systemName: "exclamationmark.shield.fill").font(.largeTitle).foregroundStyle(.red)
             VStack(alignment: .leading, spacing: 6) {
                 Text("تنبيه سلامة مهم").font(.title3.bold())
-                Text("تيّار ينبهك بس وما يضمن أبداً إن المكان آمن. عدم وجود تنبيه ما يعني إن ما فيه سلك. افصل الكهربا من الطبلون دايماً قبل الخرم، واستخدم جهاز كشف أسلاك حقيقي.")
+                Text("تيّار ينبهك بس وما يضمن أبداً إن المكان آمن. تيّار ما يكشف الأسلاك الكهربائية، وعدم وجود تنبيه ما يعني إن المكان خالي. افصل الكهربا من الطبلون دايماً قبل الخرم، واستخدم جهاز احترافي.")
                     .font(.body).fixedSize(horizontal: false, vertical: true)
             }
         }
